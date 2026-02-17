@@ -1,6 +1,9 @@
 use aiken/crypto.{Blake2b_224, Hash, VerificationKey}
 use cardano/address.{Address, Credential}
-use cardano/assets.{PolicyId}
+use cardano/assets.{AssetName, PolicyId}
+
+/// The name of the token that authenticates the settings UTXO
+pub const settings_nft_name: AssetName = "settings"
 
 // ============================================================================
 // Common Type Aliases
@@ -16,10 +19,13 @@ pub type VerificationKeyHash =
 pub type SettingsDatum {
   operator_fee_pct: Int,
   protocol_fee_pct: Int,
+  // in lovelace
   min_operator_fee: Int,
+  // in lovelace
   min_protocol_fee: Int,
   protocol_treasury: Address,
   stake_credential: Credential,
+  // in lovelace
   tx_fee_budget: Int,
   admin_pkh: VerificationKeyHash,
 }
@@ -46,15 +52,6 @@ pub type SnipeDatum {
 pub type SpendRedeemer {
   Execute
   Cancel
-}
-
-pub type MintRedeemer {
-  Mint
-  Burn
-}
-
-pub type SettingsRedeemer {
-  UpdateSettings
 }
 
 // ============================================================================
