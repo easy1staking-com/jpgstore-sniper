@@ -14,15 +14,15 @@ use sniper/types.{SettingsDatum, settings_nft_name}
 /// On update: admin signs, settings NFT must be in the spent UTxO,
 /// and must be re-output at the same script address with the NFT.
 validator settings(utxo_ref: OutputReference) {
-  mint(_redeemer: Data, policy_id: PolicyId, tx: Transaction) {
+  mint(_redeemer: Data, policy_id: PolicyId, self: Transaction) {
     let utxo_consumed =
-      list.any(tx.inputs, fn(input) { input.output_reference == utxo_ref })
+      list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
 
     let nft_value = assets.from_asset(policy_id, settings_nft_name, 1)
 
-    let only_mints_nft = tx.mint == nft_value
+    let only_mints_nft = self.mint == nft_value
 
-    let output_valid = is_output_valid(tx.outputs, policy_id, nft_value)
+    let output_valid = is_output_valid(self, policy_id, nft_value)
 
     and {
       utxo_consumed,
@@ -61,13 +61,7 @@ validator settings(utxo_ref: OutputReference) {
       )
     expect InlineDatum(output_datum) = output.datum
     expect output_settings_datum: SettingsDatum = output_datum
-    let valid_output_settings = and {
-        output_settings_datum.operator_fee_pct > 0,
-        output_settings_datum.protocol_fee_pct > 0,
-        output_settings_datum.min_operator_fee > 0,
-        output_settings_datum.min_protocol_fee > 0,
-        output_settings_datum.tx_fee_budget > 0,
-      }
+    let valid_output_settings = is_valid_settings_datum(output_settings_datum)
     expect
       settings_datum.admin_pkh == output_settings_datum.admin_pkh || list.has(
         self.extra_signatories,
@@ -86,26 +80,43 @@ validator settings(utxo_ref: OutputReference) {
 }
 
 fn is_output_valid(
-  outputs: List<Output>,
+  self: Transaction,
   payment_key_hash: ByteArray,
   nft_value: Value,
 ) -> Bool {
   expect Some(nft_output) =
     list.find(
-      outputs,
+      self.outputs,
       fn(output) { assets.without_lovelace(output.value) == nft_value },
     )
 
   let nft_sent_to_output =
     when nft_output.address.payment_credential is {
-      VerificationKey(hash) -> hash == payment_key_hash
+      Script(hash) -> hash == payment_key_hash
       _ -> False
     }
 
   expect InlineDatum(datum) = nft_output.datum
-  // Should I check the admin_key is in the list of signatories?
-  expect _settings_datum: SettingsDatum = datum
-  nft_sent_to_output
+  expect settings_datum: SettingsDatum = datum
+  let valid_output_settings = is_valid_settings_datum(settings_datum)
+
+  let has_admin_signature =
+    list.has(self.extra_signatories, settings_datum.admin_pkh)
+  and {
+    nft_sent_to_output,
+    has_admin_signature,
+    valid_output_settings,
+  }
+}
+
+fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
+  and {
+    datum.operator_fee_pct > 0,
+    datum.protocol_fee_pct > 0,
+    datum.min_operator_fee > 0,
+    datum.min_protocol_fee > 0,
+    datum.tx_fee_budget > 0,
+  }
 }
 
 // ============================================================================
