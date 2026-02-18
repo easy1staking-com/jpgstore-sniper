@@ -45,10 +45,18 @@ validator settings(utxo_ref: OutputReference) {
     let own_address = own_input.output.address
     expect Script(script_hash) = own_address.payment_credential
 
-    // 1. signed by admin
+    // 1. settings NFT must be in our own input
+    let input_has_nft =
+      assets.has_nft_strict(
+        own_input.output.value,
+        script_hash,
+        settings_nft_name,
+      )
+
+    // 2. signed by admin
     let signed_by_admin =
       list.has(self.extra_signatories, settings_datum.admin_pkh)
-    // 2. output: expected address and expected value
+    // 3. output: expected address and expected value
     expect Some(output) =
       list.find(
         self.outputs,
@@ -67,8 +75,9 @@ validator settings(utxo_ref: OutputReference) {
         self.extra_signatories,
         output_settings_datum.admin_pkh,
       )
-    // 3. only allowed fields are modified
+    // 4. only allowed fields are modified
     and {
+      input_has_nft,
       signed_by_admin,
       valid_output_settings,
     }
@@ -140,9 +149,6 @@ const test_admin_pkh =
 const test_script_hash =
   #"00000000000000000000000000000000000000000000000000000099"
 
-const test_nft_policy =
-  #"00000000000000000000000000000000000000000000000000000022"
-
 const test_treasury_pkh =
   #"00000000000000000000000000000000000000000000000000000033"
 
@@ -185,11 +191,18 @@ fn test_settings_datum() -> SettingsDatum {
   }
 }
 
+fn mint_script_address() -> Address {
+  Address {
+    payment_credential: Script(test_policy_id),
+    stake_credential: None,
+  }
+}
+
 fn mint_output() -> Output {
-  let token_name = "settings"
   Output {
-    address: address.from_verification_key(test_policy_id),
-    value: assets.from_asset(test_policy_id, token_name, 1),
+    address: mint_script_address(),
+    value: assets.from_lovelace(2_000_000)
+      |> assets.add(test_policy_id, settings_nft_name, 1),
     datum: InlineDatum(test_settings_datum()),
     reference_script: None,
   }
@@ -197,13 +210,13 @@ fn mint_output() -> Output {
 
 test mint_success() {
   let utxo_ref = test_utxo_ref()
-  let token_name = "settings"
   let tx =
     Transaction {
       ..transaction.placeholder,
       inputs: [base_input()],
       outputs: [mint_output()],
-      mint: assets.from_asset(test_policy_id, token_name, 1),
+      mint: assets.from_asset(test_policy_id, settings_nft_name, 1),
+      extra_signatories: [test_admin_pkh],
     }
   settings.mint(utxo_ref, 0, test_policy_id, tx)
 }
@@ -353,7 +366,7 @@ fn settings_input_with_nft(oref: OutputReference) -> Input {
     output: Output {
       address: test_script_address(),
       value: assets.from_lovelace(2_000_000)
-        |> assets.add(test_nft_policy, "settings", 1),
+        |> assets.add(test_script_hash, settings_nft_name, 1),
       datum: InlineDatum(test_settings_datum()),
       reference_script: None,
     },
@@ -364,7 +377,7 @@ fn settings_continuing_output() -> Output {
   Output {
     address: test_script_address(),
     value: assets.from_lovelace(2_000_000)
-      |> assets.add(test_nft_policy, "settings", 1),
+      |> assets.add(test_script_hash, settings_nft_name, 1),
     datum: InlineDatum(test_settings_datum()),
     reference_script: None,
   }
@@ -468,4 +481,218 @@ test update_settings_fails_without_datum() fail {
       output_index: 0,
     }
   settings.spend(utxo_ref, None, Void, own_ref, transaction.placeholder)
+}
+
+// ============================================================================
+// Mint — Datum Validation Tests
+// ============================================================================
+
+fn mint_tx_with_datum(datum: SettingsDatum) -> Transaction {
+  let output =
+    Output {
+      address: mint_script_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_policy_id, settings_nft_name, 1),
+      datum: InlineDatum(datum),
+      reference_script: None,
+    }
+  Transaction {
+    ..transaction.placeholder,
+    inputs: [base_input()],
+    outputs: [output],
+    mint: assets.from_asset(test_policy_id, settings_nft_name, 1),
+    extra_signatories: [datum.admin_pkh],
+  }
+}
+
+test mint_fails_without_admin_signature() fail {
+  let utxo_ref = test_utxo_ref()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [base_input()],
+      outputs: [mint_output()],
+      mint: assets.from_asset(test_policy_id, settings_nft_name, 1),
+      extra_signatories: [],
+    }
+  settings.mint(utxo_ref, 0, test_policy_id, tx)
+}
+
+test mint_fails_with_zero_operator_fee_pct() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), operator_fee_pct: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_zero_protocol_fee_pct() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_zero_min_operator_fee() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), min_operator_fee: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_zero_min_protocol_fee() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), min_protocol_fee: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_zero_tx_fee_budget() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), tx_fee_budget: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_negative_fee() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum =
+    SettingsDatum { ..test_settings_datum(), min_protocol_fee: -1_000_000 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+// ============================================================================
+// Spend — Datum Validation Tests
+// ============================================================================
+
+fn spend_tx_with_output_datum(datum: SettingsDatum, own_ref: OutputReference) {
+  let output =
+    Output {
+      address: test_script_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_script_hash, settings_nft_name, 1),
+      datum: InlineDatum(datum),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [settings_input_with_nft(own_ref)],
+      outputs: [output],
+      extra_signatories: [test_admin_pkh],
+    }
+  settings.spend(
+    test_utxo_ref(),
+    Some(test_settings_datum()),
+    Void,
+    own_ref,
+    tx,
+  )
+}
+
+test update_fails_with_zero_operator_fee_pct() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), operator_fee_pct: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_zero_protocol_fee_pct() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_zero_min_operator_fee() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), min_operator_fee: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_zero_min_protocol_fee() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), min_protocol_fee: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_zero_tx_fee_budget() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), tx_fee_budget: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_negative_fee() fail {
+  let own_ref = test_utxo_ref()
+  let datum =
+    SettingsDatum { ..test_settings_datum(), min_protocol_fee: -1_000_000 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+// ============================================================================
+// Spend — Admin Key Rotation Tests
+// ============================================================================
+
+const test_new_admin_pkh =
+  #"00000000000000000000000000000000000000000000000000000077"
+
+test rotate_admin_key_success() {
+  let utxo_ref = test_utxo_ref()
+  let own_ref = test_utxo_ref()
+  let new_datum =
+    SettingsDatum { ..test_settings_datum(), admin_pkh: test_new_admin_pkh }
+  let output =
+    Output {
+      address: test_script_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_script_hash, settings_nft_name, 1),
+      datum: InlineDatum(new_datum),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [settings_input_with_nft(own_ref)],
+      outputs: [output],
+      extra_signatories: [test_admin_pkh, test_new_admin_pkh],
+    }
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
+}
+
+test rotate_admin_key_fails_without_new_admin_sig() fail {
+  let utxo_ref = test_utxo_ref()
+  let own_ref = test_utxo_ref()
+  let new_datum =
+    SettingsDatum { ..test_settings_datum(), admin_pkh: test_new_admin_pkh }
+  let output =
+    Output {
+      address: test_script_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_script_hash, settings_nft_name, 1),
+      datum: InlineDatum(new_datum),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [settings_input_with_nft(own_ref)],
+      outputs: [output],
+      extra_signatories: [test_admin_pkh],
+    }
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
+}
+
+test rotate_admin_key_fails_without_old_admin_sig() fail {
+  let utxo_ref = test_utxo_ref()
+  let own_ref = test_utxo_ref()
+  let new_datum =
+    SettingsDatum { ..test_settings_datum(), admin_pkh: test_new_admin_pkh }
+  let output =
+    Output {
+      address: test_script_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_script_hash, settings_nft_name, 1),
+      datum: InlineDatum(new_datum),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [settings_input_with_nft(own_ref)],
+      outputs: [output],
+      extra_signatories: [test_new_admin_pkh],
+    }
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
