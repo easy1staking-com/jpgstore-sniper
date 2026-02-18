@@ -30,6 +30,16 @@ pub type SettingsDatum {
   admin_pkh: VerificationKeyHash,
 }
 
+pub fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
+  and {
+    datum.operator_fee_pct > 0,
+    datum.protocol_fee_pct > 0,
+    datum.min_operator_fee > 0,
+    datum.min_protocol_fee > 0,
+    datum.tx_fee_budget > 0,
+  }
+}
+
 // ============================================================================
 // Snipe Datum (lives at snipe escrow address, inline)
 // ============================================================================

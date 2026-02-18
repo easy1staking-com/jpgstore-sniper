@@ -4,7 +4,7 @@ use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
-use sniper/types.{SettingsDatum, settings_nft_name}
+use sniper/types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
 
 /// Settings Spending Validator (Continuous State)
 ///
@@ -118,16 +118,6 @@ fn is_output_valid(
   }
 }
 
-fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
-  and {
-    datum.operator_fee_pct > 0,
-    datum.protocol_fee_pct > 0,
-    datum.min_operator_fee > 0,
-    datum.min_protocol_fee > 0,
-    datum.tx_fee_budget > 0,
-  }
-}
-
 // ============================================================================
 // Mint Tests
 // ============================================================================
@@ -152,7 +142,7 @@ const test_script_hash =
 const test_treasury_pkh =
   #"00000000000000000000000000000000000000000000000000000033"
 
-fn test_utxo_ref() -> OutputReference {
+pub fn test_utxo_ref() -> OutputReference {
   OutputReference { transaction_id: test_tx_hash, output_index: 0 }
 }
 
@@ -163,7 +153,7 @@ fn test_user_address() -> Address {
   }
 }
 
-fn base_input() -> Input {
+pub fn base_input() -> Input {
   Input {
     output_reference: test_utxo_ref(),
     output: Output {
@@ -191,11 +181,8 @@ fn test_settings_datum() -> SettingsDatum {
   }
 }
 
-fn mint_script_address() -> Address {
-  Address {
-    payment_credential: Script(test_policy_id),
-    stake_credential: None,
-  }
+pub fn mint_script_address() -> Address {
+  Address { payment_credential: Script(test_policy_id), stake_credential: None }
 }
 
 fn mint_output() -> Output {
@@ -353,7 +340,7 @@ test invalid_redeemer_fails() fail {
 // Spend Tests
 // ============================================================================
 
-fn test_script_address() -> Address {
+pub fn test_script_address() -> Address {
   Address {
     payment_credential: Script(test_script_hash),
     stake_credential: None,
