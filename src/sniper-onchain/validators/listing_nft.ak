@@ -6,7 +6,7 @@ use cardano/assets.{PolicyId}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
-use sniper/types.{Mint, MintRedeemer, SettingsDatum, SnipeDatum}
+use sniper/types.{Burn, Mint, MintRedeemer, SettingsDatum, SnipeDatum}
 use sniper/utils.{calculate_fee, calculate_locked_amount}
 
 /// Listing NFT Minting Policy (Shared)

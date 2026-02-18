@@ -1,7 +1,6 @@
-use aiken/collection/dict
 use aiken/collection/list
 use cardano/address.{Address, Script, VerificationKey}
-use cardano/assets.{PolicyId}
+use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
@@ -23,26 +22,12 @@ validator settings(utxo_ref: OutputReference) {
 
     let only_mints_nft = tx.mint == nft_value
 
-    expect Some(nft_output) =
-      list.find(
-        tx.outputs,
-        fn(output) { assets.without_lovelace(output.value) == nft_value },
-      )
-
-    let nft_sent_to_output =
-      when nft_output.address.payment_credential is {
-        VerificationKey(hash) -> hash == policy_id
-        _ -> False
-      }
-
-    expect InlineDatum(datum) = nft_output.datum
-    // Should I check the admin_key is in the list of signatories?
-    expect _settings_datum: SettingsDatum = datum
+    let output_valid = is_output_valid(tx.outputs, policy_id, nft_value)
 
     and {
       utxo_consumed,
       only_mints_nft,
-      nft_sent_to_output,
+      output_valid,
     }
   }
 
@@ -53,7 +38,7 @@ validator settings(utxo_ref: OutputReference) {
     self: Transaction,
   ) {
     expect Some(input_datum) = datum
-    expect settings_datum: SettingsDatum = input_datum
+    let settings_datum: SettingsDatum = input_datum
 
     expect Some(own_input) = transaction.find_input(self.inputs, own_ref)
 
@@ -98,6 +83,29 @@ validator settings(utxo_ref: OutputReference) {
   else(_) {
     fail
   }
+}
+
+fn is_output_valid(
+  outputs: List<Output>,
+  payment_key_hash: ByteArray,
+  nft_value: Value,
+) -> Bool {
+  expect Some(nft_output) =
+    list.find(
+      outputs,
+      fn(output) { assets.without_lovelace(output.value) == nft_value },
+    )
+
+  let nft_sent_to_output =
+    when nft_output.address.payment_credential is {
+      VerificationKey(hash) -> hash == payment_key_hash
+      _ -> False
+    }
+
+  expect InlineDatum(datum) = nft_output.datum
+  // Should I check the admin_key is in the list of signatories?
+  expect _settings_datum: SettingsDatum = datum
+  nft_sent_to_output
 }
 
 // ============================================================================
@@ -365,13 +373,7 @@ test update_settings_success() {
       outputs: [settings_continuing_output()],
       extra_signatories: [test_admin_pkh],
     }
-  settings.spend(
-    utxo_ref,
-    Some(test_settings_datum()),
-    UpdateSettings,
-    own_ref,
-    tx,
-  )
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
 
 test update_settings_fails_without_admin_sig() fail {
@@ -388,13 +390,7 @@ test update_settings_fails_without_admin_sig() fail {
       outputs: [settings_continuing_output()],
       extra_signatories: [],
     }
-  settings.spend(
-    utxo_ref,
-    Some(test_settings_datum()),
-    UpdateSettings,
-    own_ref,
-    tx,
-  )
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
 
 test update_settings_fails_without_nft_in_input() fail {
@@ -422,13 +418,7 @@ test update_settings_fails_without_nft_in_input() fail {
       outputs: [settings_continuing_output()],
       extra_signatories: [test_admin_pkh],
     }
-  settings.spend(
-    utxo_ref,
-    Some(test_settings_datum()),
-    UpdateSettings,
-    own_ref,
-    tx,
-  )
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
 
 test update_settings_fails_without_continuing_output() fail {
@@ -456,13 +446,7 @@ test update_settings_fails_without_continuing_output() fail {
       ],
       extra_signatories: [test_admin_pkh],
     }
-  settings.spend(
-    utxo_ref,
-    Some(test_settings_datum()),
-    UpdateSettings,
-    own_ref,
-    tx,
-  )
+  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
 
 test update_settings_fails_without_datum() fail {
@@ -472,11 +456,5 @@ test update_settings_fails_without_datum() fail {
       transaction_id: #"0000000000000000000000000000000000000000000000000000000000000001",
       output_index: 0,
     }
-  settings.spend(
-    utxo_ref,
-    None,
-    UpdateSettings,
-    own_ref,
-    transaction.placeholder,
-  )
+  settings.spend(utxo_ref, None, Void, own_ref, transaction.placeholder)
 }

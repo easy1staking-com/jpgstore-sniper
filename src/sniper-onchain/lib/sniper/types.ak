@@ -54,6 +54,11 @@ pub type SpendRedeemer {
   Cancel
 }
 
+pub type MintRedeemer {
+  Mint
+  Burn
+}
+
 // ============================================================================
 // Output Tag (inline datum for double satisfaction prevention)
 // ============================================================================
