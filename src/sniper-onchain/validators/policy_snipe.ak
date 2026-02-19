@@ -276,8 +276,8 @@ fn test_treasury_address() -> Address {
 
 fn test_settings() -> SettingsDatum {
   SettingsDatum {
-    operator_fee_pct: 200,
-    protocol_fee_pct: 100,
+    operator_fee_pct: 2,
+    protocol_fee_pct: 1,
     min_operator_fee: 1_000_000,
     min_protocol_fee: 1_000_000,
     protocol_treasury: test_treasury_address(),
