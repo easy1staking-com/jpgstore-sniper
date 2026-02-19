@@ -59,14 +59,16 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
           tx.outputs,
           0,
           fn(output, acc) {
-            expect Some(stake_credentials) = output.address.stake_credential
-            expect Inline(stake_cred) = stake_credentials
-            expect stake_cred == settings.stake_credential
-
             when output.address.payment_credential is {
               Script(script_hash) ->
                 if script_hash == policy_id {
                   trace @"Found output with correct policy: "
+
+                  expect Some(stake_credentials) =
+                    output.address.stake_credential
+                  expect Inline(stake_cred) = stake_credentials
+                  expect stake_cred == settings.stake_credential
+
                   // Beside ada, just exactly 1 NFT under the policy
                   expect
                     assets.without_lovelace(output.value) == expected_nft_value
@@ -1107,11 +1109,9 @@ test execute_succeeds_with_protocol_fee_bypass() {
   )
 }
 
-// === Mint — Stake Credential Not Enforced ===
-// SECURITY: The mint handler doesn't check stake_credential on escrow outputs.
-// This test documents that any stake credential is accepted.
+// === Mint — Stake Credential Enforced ===
 
-test listing_nft_mint_succeeds_with_any_stake_credential() {
+test listing_nft_mint_fails_with_wrong_stake_credential_value() fail {
   let attacker_stake =
     #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabb"
   let bad_address =
@@ -1128,13 +1128,12 @@ test listing_nft_mint_succeeds_with_any_stake_credential() {
       outputs: [bad_output],
       mint: assets.from_asset(test_listing_policy, #"", 1),
     }
-  // This SHOULD fail but passes — stake credential is not validated
   policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
 }
 
-// === Mint — No Stake Credential Accepted Too ===
+// === Mint — No Stake Credential Rejected ===
 
-test listing_nft_mint_succeeds_with_no_stake_credential() {
+test listing_nft_mint_fails_with_no_stake_credential() fail {
   let no_stake_address =
     Address {
       payment_credential: Script(test_listing_policy),
