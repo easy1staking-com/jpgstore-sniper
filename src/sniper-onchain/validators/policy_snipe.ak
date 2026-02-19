@@ -59,6 +59,10 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
           tx.outputs,
           0,
           fn(output, acc) {
+            expect Some(stake_credentials) = output.address.stake_credential
+            expect Inline(stake_cred) = stake_credentials
+            expect stake_cred == settings.stake_credential
+
             when output.address.payment_credential is {
               Script(script_hash) ->
                 if script_hash == policy_id {
