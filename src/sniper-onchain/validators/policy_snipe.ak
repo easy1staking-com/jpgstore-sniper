@@ -155,6 +155,9 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
 
     when redeemer is {
       Execute -> {
+        expect assets.has_nft(own_input.output.value, escrow_script_hash, #"")
+
+        // Ensure the own input has the NFT
         // Get PRotocol Settings from reference input
         expect Some(settings_ref_input) =
           list.find(
@@ -716,11 +719,9 @@ test execute_fails_without_listing_nft_burn() fail {
   )
 }
 
-// NOTE: A bare UTxO at the escrow address (without listing NFT) CAN be spent
-// if correct outputs are provided, because 0 NFTs to burn == 0 minted.
-// This is a known design consideration — such UTxOs can only exist if someone
-// sends ADA to the script address without going through the mint handler.
-test execute_bare_utxo_without_listing_nft_succeeds() {
+// A bare UTxO at the escrow address (without listing NFT) cannot be spent
+// via Execute — the listing NFT is required in own input.
+test execute_bare_utxo_without_listing_nft_fails() fail {
   let oref = test_snipe_oref()
   let tag = compute_output_tag(oref)
   let input_no_nft =

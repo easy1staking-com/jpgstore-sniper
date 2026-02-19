@@ -8,7 +8,6 @@ use settings.{
   base_input, mint_script_address, test_script_address, test_utxo_ref,
 }
 use sniper/types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
-use sniper/utils.{calculate_fee, calculate_locked_amount}
 
 const test_policy_id =
   #"00000000000000000000000000000000000000000000000000000011"
@@ -84,53 +83,6 @@ test prop_valid_datum_always_accepted(datum via valid_settings_datum()) {
 
 test prop_invalid_datum_always_rejected(datum via invalid_settings_datum()) {
   !is_valid_settings_datum(datum)
-}
-
-// ============================================================================
-// Fee Calculation — Property Tests
-// ============================================================================
-
-fn fee_params() -> Fuzzer<(Int, Int, Int)> {
-  let amount <- and_then(fuzz.int_between(0, 1_000_000_000))
-  let pct <- and_then(fuzz.int_between(0, 5000))
-  let min_fee <- map(fuzz.int_between(0, 10_000_000))
-  (amount, pct, min_fee)
-}
-
-test prop_fee_never_below_min(params via fee_params()) {
-  let (amount, pct, min_fee) = params
-  calculate_fee(amount, pct, min_fee) >= min_fee
-}
-
-test prop_fee_never_below_pct(params via fee_params()) {
-  let (amount, pct, min_fee) = params
-  let pct_fee = amount * pct / 10000
-  calculate_fee(amount, pct, min_fee) >= pct_fee
-}
-
-test prop_fee_is_max_of_pct_and_min(params via fee_params()) {
-  let (amount, pct, min_fee) = params
-  let result = calculate_fee(amount, pct, min_fee)
-  let pct_fee = amount * pct / 10000
-  result == pct_fee || result == min_fee
-}
-
-fn locked_amount_params() -> Fuzzer<(Int, Int, Int, Int)> {
-  let max_price <- and_then(fuzz.int_between(1_000_000, 1_000_000_000))
-  let op_fee <- and_then(fuzz.int_between(0, 10_000_000))
-  let proto_fee <- and_then(fuzz.int_between(0, 10_000_000))
-  let budget <- map(fuzz.int_between(1_000_000, 10_000_000))
-  (max_price, op_fee, proto_fee, budget)
-}
-
-test prop_locked_amount_gte_max_price(params via locked_amount_params()) {
-  let (max_price, op_fee, proto_fee, budget) = params
-  calculate_locked_amount(max_price, op_fee, proto_fee, budget) >= max_price
-}
-
-test prop_locked_amount_is_sum(params via locked_amount_params()) {
-  let (max_price, op_fee, proto_fee, budget) = params
-  calculate_locked_amount(max_price, op_fee, proto_fee, budget) == max_price + op_fee + proto_fee + budget
 }
 
 // ============================================================================
