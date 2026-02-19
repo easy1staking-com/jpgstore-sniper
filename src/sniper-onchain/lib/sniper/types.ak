@@ -49,10 +49,7 @@ pub type SnipeDatum {
   nft_destination: Address,
   policy_id: PolicyId,
   max_price: Int,
-  operator_fee: Int,
   protocol_fee: Int,
-  protocol_treasury: Address,
-  tx_fee_budget: Int,
 }
 
 // ============================================================================
@@ -62,11 +59,6 @@ pub type SnipeDatum {
 pub type SpendRedeemer {
   Execute
   Cancel
-}
-
-pub type MintRedeemer {
-  Mint
-  Burn
 }
 
 // ============================================================================

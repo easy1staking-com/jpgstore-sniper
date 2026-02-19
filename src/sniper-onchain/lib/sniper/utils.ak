@@ -1,7 +1,7 @@
+use aiken/cbor.{serialise}
 use aiken/collection/list
 use aiken/crypto.{blake2b_256}
 use aiken/math
-use aiken/primitive/bytearray
 use cardano/address.{Address}
 use cardano/assets.{PolicyId, lovelace_of}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
@@ -13,8 +13,9 @@ use sniper/types.{OutputTag, VerificationKeyHash}
 
 /// Compute the tag for an output: blake2b_256(tx_hash ++ output_index_bytes)
 pub fn compute_output_tag(oref: OutputReference) -> ByteArray {
-  let index_bytes = bytearray.from_int_big_endian(oref.output_index, 0)
-  blake2b_256(bytearray.concat(oref.transaction_id, index_bytes))
+  oref
+    |> serialise
+    |> blake2b_256
 }
 
 // ============================================================================
