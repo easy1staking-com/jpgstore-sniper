@@ -1,0 +1,44 @@
+spring:
+  flyway:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/jpgsniper}
+    user: ${DB_USERNAME:jpgsniper}
+    password: ${DB_PASSWORD:password}
+    schemas: ${DB_SCHEMA:}
+    locations:
+      - classpath:db/store/{vendor}
+      - classpath:db/store/jpgsniper
+    out-of-order: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/jpgsniper}
+    username: ${DB_USERNAME:jpgsniper}
+    password: ${DB_PASSWORD:password}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+blockfrost:
+  url: https://cardano-mainnet.blockfrost.io/api/v0/
+  key: ""
+
+store:
+  cardano:
+    host: ""
+    port: 0
+    protocol-magic: 764824073
+    # Start from the block that minted the ref input for the contract
+    sync-start-slot: 179884882
+    sync-start-blockhash: 91171507153b565e83d817998fa3cfd18d4a6bcafee2215e19778543177173f0
+  utxo:
+    pruning-enabled: true
+    pruning:
+      interval: 600
+  blocks:
+    epoch-calculation-interval=14400:  # 14400 = 4 hours
+
+apiPrefix: /api/v1
+
+wallet:
+  mnemonic: ""
