@@ -5,6 +5,8 @@ use cardano/assets.{AssetName, PolicyId}
 /// The name of the token that authenticates the settings UTXO
 pub const settings_nft_name: AssetName = "settings"
 
+pub const percentage_denominator: Int = 100
+
 // ============================================================================
 // Common Type Aliases
 // ============================================================================
@@ -59,12 +61,4 @@ pub type SnipeDatum {
 pub type SpendRedeemer {
   Execute
   Cancel
-}
-
-// ============================================================================
-// Output Tag (inline datum for double satisfaction prevention)
-// ============================================================================
-
-pub type OutputTag {
-  tag: ByteArray,
 }

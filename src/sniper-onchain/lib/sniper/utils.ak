@@ -5,7 +5,7 @@ use aiken/math
 use cardano/address.{Address}
 use cardano/assets.{PolicyId, lovelace_of}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
-use sniper/types.{OutputTag, VerificationKeyHash}
+use sniper/types.{VerificationKeyHash}
 
 // ============================================================================
 // Double Satisfaction Prevention
@@ -63,8 +63,8 @@ pub fn find_tagged_nft_output_to(
 fn has_inline_tag(output: Output, expected_tag: ByteArray) -> Bool {
   when output.datum is {
     InlineDatum(datum) -> {
-      expect tag: OutputTag = datum
-      tag.tag == expected_tag
+      expect tag: ByteArray = datum
+      tag == expected_tag
     }
     _ -> False
   }

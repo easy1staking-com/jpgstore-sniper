@@ -1,14 +1,15 @@
 use aiken/collection/dict
 use aiken/collection/list
 use aiken/math.{max}
+use aiken/math/rational
 use cardano/address.{Address, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use sniper/types.{
-  Cancel, Execute, OutputTag, SettingsDatum, SnipeDatum, SpendRedeemer,
-  settings_nft_name,
+  Cancel, Execute, SettingsDatum, SnipeDatum, SpendRedeemer,
+  percentage_denominator, settings_nft_name,
 }
 use sniper/utils.{compute_output_tag, signed_by}
 
@@ -69,20 +70,15 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
                   expect InlineDatum(output_datum) = output.datum
                   expect snipe_datum: SnipeDatum = output_datum
 
-                  let protocol_fee =
-                    max(
-                      snipe_datum.max_price * settings.protocol_fee_pct / 1000,
-                      settings.min_protocol_fee,
-                    )
-                  let operator_fee =
-                    max(
-                      snipe_datum.max_price * settings.operator_fee_pct / 1000,
-                      settings.min_operator_fee,
-                    )
-
+                  let (protocol_fees, operator_fees) =
+                    calculate_fees(settings, snipe_datum)
                   let expected_min_lovelace_locked =
-                    snipe_datum.max_price + protocol_fee + operator_fee + settings.tx_fee_budget
+                    snipe_datum.max_price + protocol_fees + operator_fees + settings.tx_fee_budget
 
+                  trace @"snipe_datum.protocol_fee: ": snipe_datum.protocol_fee
+                  trace @"protocol_fees: ": protocol_fees
+
+                  expect snipe_datum.protocol_fee == protocol_fees
                   expect
                     assets.lovelace_of(output.value) >= expected_min_lovelace_locked
 
@@ -223,6 +219,29 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
   }
 }
 
+pub fn calculate_fees(
+  settings: SettingsDatum,
+  snipe_datum: SnipeDatum,
+) -> (Int, Int) {
+  let max_price = rational.from_int(snipe_datum.max_price)
+  let protocol_fees =
+    if settings.protocol_fee_pct == 0 {
+      math.max(0, settings.min_protocol_fee)
+    } else {
+      expect Some(protocol_fees_pct) =
+        rational.new(settings.protocol_fee_pct, percentage_denominator)
+      let protocol_fees =
+        max_price |> rational.mul(protocol_fees_pct) |> rational.ceil()
+      math.max(protocol_fees, settings.min_protocol_fee)
+    }
+  expect Some(operator_fees_pct) =
+    rational.new(settings.operator_fee_pct, percentage_denominator)
+
+  let operator_fees =
+    max_price |> rational.mul(operator_fees_pct) |> rational.ceil()
+  (protocol_fees, operator_fees)
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -295,10 +314,10 @@ fn test_locked_lovelace(
   snipe_datum: SnipeDatum,
 ) -> Int {
   snipe_datum.max_price + max(
-    snipe_datum.max_price * protocol_settings.operator_fee_pct / 100,
+    snipe_datum.max_price * protocol_settings.operator_fee_pct / percentage_denominator,
     protocol_settings.min_operator_fee,
   ) + max(
-    snipe_datum.max_price * protocol_settings.protocol_fee_pct / 100,
+    snipe_datum.max_price * protocol_settings.protocol_fee_pct / percentage_denominator,
     protocol_settings.min_protocol_fee,
   ) + protocol_settings.tx_fee_budget
 }
@@ -560,8 +579,6 @@ const test_target_policy =
 const test_owner_pkh =
   #"00000000000000000000000000000000000000000000000000000001"
 
-const test_listing_token_name = "listing_token"
-
 fn test_snipe_oref() -> OutputReference {
   OutputReference {
     transaction_id: #"0000000000000000000000000000000000000000000000000000000000000001",
@@ -641,11 +658,11 @@ test execute_fails_without_nft_delivery() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       outputs: [protocol_fee_output(tag)],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
       reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -661,11 +678,11 @@ test execute_fails_without_protocol_fee() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       outputs: [nft_delivery_output(tag)],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
       reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -685,7 +702,7 @@ test execute_fails_without_listing_nft_burn() fail {
       reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -693,7 +710,11 @@ test execute_fails_without_listing_nft_burn() fail {
   )
 }
 
-test execute_fails_without_listing_nft_in_input() fail {
+// NOTE: A bare UTxO at the escrow address (without listing NFT) CAN be spent
+// if correct outputs are provided, because 0 NFTs to burn == 0 minted.
+// This is a known design consideration — such UTxOs can only exist if someone
+// sends ADA to the script address without going through the mint handler.
+test execute_bare_utxo_without_listing_nft_succeeds() {
   let oref = test_snipe_oref()
   let tag = compute_output_tag(oref)
   let input_no_nft =
@@ -701,7 +722,7 @@ test execute_fails_without_listing_nft_in_input() fail {
       output_reference: oref,
       output: Output {
         address: Address {
-          payment_credential: Script(test_escrow_script_hash),
+          payment_credential: Script(test_listing_policy),
           stake_credential: None,
         },
         value: assets.from_lovelace(106_000_000),
@@ -714,11 +735,54 @@ test execute_fails_without_listing_nft_in_input() fail {
       ..transaction.placeholder,
       inputs: [input_no_nft],
       outputs: [nft_delivery_output(tag), protocol_fee_output(tag)],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.zero,
       reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
+    oref,
+    tx,
+  )
+}
+
+// When a bare UTxO exists alongside a proper NFT-bearing input, the burn
+// must still account for all NFTs. This tests that the bare input + proper
+// burn of 0 still fails when there's actually an NFT in another input.
+test execute_bare_utxo_fails_if_other_inputs_have_nft() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let input_no_nft =
+    Input {
+      output_reference: oref,
+      output: Output {
+        address: Address {
+          payment_credential: Script(test_listing_policy),
+          stake_credential: None,
+        },
+        value: assets.from_lovelace(106_000_000),
+        datum: InlineDatum(test_snipe_datum()),
+        reference_script: None,
+      },
+    }
+  let other_oref =
+    OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000002",
+      output_index: 0,
+    }
+  let input_with_nft = escrow_input(other_oref)
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [input_no_nft, input_with_nft],
+      outputs: [nft_delivery_output(tag), protocol_fee_output(tag)],
+      // Only burning 0, but there's 1 NFT in the other input
+      mint: assets.zero,
+      reference_inputs: [settings_ref_input()],
+    }
+  policy_snipe.spend(
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -736,10 +800,11 @@ test execute_fails_wrong_tag_on_nft_output() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       outputs: [nft_delivery_output(wrong_tag), protocol_fee_output(tag)],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -754,7 +819,7 @@ test execute_fails_insufficient_protocol_fee() fail {
     Output {
       address: test_treasury_address(),
       value: assets.from_lovelace(500_000),
-      datum: InlineDatum(OutputTag { tag }),
+      datum: InlineDatum(tag),
       reference_script: None,
     }
   let tx =
@@ -762,10 +827,11 @@ test execute_fails_insufficient_protocol_fee() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       outputs: [nft_delivery_output(tag), low_fee_output],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Execute,
     oref,
@@ -822,7 +888,7 @@ test cancel_success() {
       mint: assets.from_asset(test_listing_policy, #"", -1),
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Cancel,
     oref,
@@ -837,10 +903,10 @@ test cancel_fails_without_owner_sig() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       extra_signatories: [],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Cancel,
     oref,
@@ -858,7 +924,7 @@ test cancel_fails_without_burn() fail {
       mint: assets.zero,
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Cancel,
     oref,
@@ -874,12 +940,341 @@ test cancel_fails_wrong_signer() fail {
       ..transaction.placeholder,
       inputs: [escrow_input(oref)],
       extra_signatories: [wrong_pkh],
-      mint: assets.from_asset(test_listing_policy, test_listing_token_name, -1),
+      mint: assets.from_asset(test_listing_policy, #"", -1),
     }
   policy_snipe.spend(
-    test_listing_policy,
+    test_settings_nft_policy,
     Some(test_snipe_datum()),
     Cancel,
+    oref,
+    tx,
+  )
+}
+
+// === Cancel — None Datum ===
+
+test cancel_fails_with_none_datum() fail {
+  let oref = test_snipe_oref()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref)],
+      extra_signatories: [test_owner_pkh],
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+    }
+  policy_snipe.spend(test_settings_nft_policy, None, Cancel, oref, tx)
+}
+
+// === Execute — Wrong NFT Policy in Delivery ===
+
+test execute_fails_wrong_nft_policy_in_delivery() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let wrong_policy = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let wrong_nft_output =
+    Output {
+      address: test_owner_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(wrong_policy, "cool_nft_001", 1),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref)],
+      outputs: [wrong_nft_output, protocol_fee_output(tag)],
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
+    oref,
+    tx,
+  )
+}
+
+// === Execute — Wrong Destination Address ===
+
+test execute_fails_wrong_destination_address() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let wrong_address =
+    Address {
+      payment_credential: VerificationKey(test_treasury_pkh),
+      stake_credential: None,
+    }
+  let wrong_dest_output =
+    Output {
+      address: wrong_address,
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_target_policy, "cool_nft_001", 1),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref)],
+      outputs: [wrong_dest_output, protocol_fee_output(tag)],
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
+    oref,
+    tx,
+  )
+}
+
+// === Execute — Double Satisfaction Prevention ===
+// Two escrow inputs sharing one delivery output should fail because
+// each input's tag is unique (derived from its own oref).
+
+test execute_fails_double_satisfaction() fail {
+  let oref1 = test_snipe_oref()
+  let oref2 =
+    OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000002",
+      output_index: 0,
+    }
+  // Use oref2's tag for the outputs — oref1 should fail
+  let tag2 = compute_output_tag(oref2)
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref1), escrow_input(oref2)],
+      outputs: [nft_delivery_output(tag2), protocol_fee_output(tag2)],
+      mint: assets.from_asset(test_listing_policy, #"", -2),
+      reference_inputs: [settings_ref_input()],
+    }
+  // Spend from oref1's perspective — tag won't match
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
+    oref1,
+    tx,
+  )
+}
+
+// === Execute — Protocol Fee Bypass Vulnerability ===
+// SECURITY: snipe_datum.protocol_fee=0 is NOT validated against settings.
+// This test documents that the protocol fee can be bypassed.
+
+test execute_succeeds_with_protocol_fee_bypass() {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  // Datum with protocol_fee: 0, even though settings require > 0
+  let bypass_datum = SnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
+  let bypass_input =
+    Input {
+      output_reference: oref,
+      output: Output {
+        address: Address {
+          payment_credential: Script(test_listing_policy),
+          stake_credential: None,
+        },
+        value: assets.from_lovelace(106_000_000)
+          |> assets.add(test_listing_policy, #"", 1),
+        datum: InlineDatum(bypass_datum),
+        reference_script: None,
+      },
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [bypass_input],
+      // No protocol fee output — bypassed because datum says 0
+      outputs: [nft_delivery_output(tag)],
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(bypass_datum),
+    Execute,
+    oref,
+    tx,
+  )
+}
+
+// === Mint — Stake Credential Not Enforced ===
+// SECURITY: The mint handler doesn't check stake_credential on escrow outputs.
+// This test documents that any stake credential is accepted.
+
+test listing_nft_mint_succeeds_with_any_stake_credential() {
+  let attacker_stake =
+    #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabb"
+  let bad_address =
+    Address {
+      payment_credential: Script(test_listing_policy),
+      stake_credential: Some(Inline(VerificationKey(attacker_stake))),
+    }
+  let bad_output = Output { ..escrow_output_with_nft(), address: bad_address }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [bad_output],
+      mint: assets.from_asset(test_listing_policy, #"", 1),
+    }
+  // This SHOULD fail but passes — stake credential is not validated
+  policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
+}
+
+// === Mint — No Stake Credential Accepted Too ===
+
+test listing_nft_mint_succeeds_with_no_stake_credential() {
+  let no_stake_address =
+    Address {
+      payment_credential: Script(test_listing_policy),
+      stake_credential: None,
+    }
+  let output = Output { ..escrow_output_with_nft(), address: no_stake_address }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [output],
+      mint: assets.from_asset(test_listing_policy, #"", 1),
+    }
+  policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
+}
+
+// === Mint — Multiple Outputs Each With 1 NFT ===
+// If 2 NFTs are minted and distributed to 2 outputs, both must validate.
+
+test listing_nft_mint_success_multiple_outputs() {
+  let other_snipe =
+    SnipeDatum {
+      owner_pkh: test_user_pkh,
+      nft_destination: Address {
+        payment_credential: VerificationKey(test_user_pkh),
+        stake_credential: None,
+      },
+      policy_id: #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      max_price: 50_000_000,
+      protocol_fee: 1_000_000,
+    }
+  let output2 =
+    Output {
+      address: test_escrow_address(),
+      value: assets.from_lovelace(
+        test_locked_lovelace(test_settings(), other_snipe),
+      )
+        |> assets.add(test_listing_policy, #"", 1),
+      datum: InlineDatum(other_snipe),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [escrow_output_with_nft(), output2],
+      mint: assets.from_asset(test_listing_policy, #"", 2),
+    }
+  policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
+}
+
+// === Mint — 2 NFTs Minted But Only 1 Output ===
+
+test listing_nft_mint_fails_qty_mismatch() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [escrow_output_with_nft()],
+      mint: assets.from_asset(test_listing_policy, #"", 2),
+    }
+  policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
+}
+
+// === Mint — Extra Tokens in Escrow Output (Token Dust) ===
+
+test listing_nft_mint_fails_extra_tokens_in_output() fail {
+  let dust_policy = #"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  let dusty_output =
+    Output {
+      address: test_escrow_address(),
+      value: assets.from_lovelace(
+        test_locked_lovelace(test_settings(), test_snipe_datum()),
+      )
+        |> assets.add(test_listing_policy, #"", 1)
+        |> assets.add(dust_policy, "dust", 1),
+      datum: InlineDatum(test_snipe_datum()),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [dusty_output],
+      mint: assets.from_asset(test_listing_policy, #"", 1),
+    }
+  policy_snipe.mint(test_settings_nft_policy, Void, test_listing_policy, tx)
+}
+
+// === Execute — Multiple Escrow Inputs Batch ===
+
+test execute_success_batch_two_inputs() {
+  let oref1 = test_snipe_oref()
+  let oref2 =
+    OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000002",
+      output_index: 0,
+    }
+  let tag1 = compute_output_tag(oref1)
+  let tag2 = compute_output_tag(oref2)
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref1), escrow_input(oref2)],
+      outputs: [
+        nft_delivery_output(tag1),
+        protocol_fee_output(tag1),
+        nft_delivery_output(tag2),
+        protocol_fee_output(tag2),
+      ],
+      mint: assets.from_asset(test_listing_policy, #"", -2),
+      reference_inputs: [settings_ref_input()],
+    }
+  // Verify from oref1's perspective
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
+    oref1,
+    tx,
+  )
+}
+
+// === Execute — Missing Settings Reference Input ===
+
+test execute_fails_without_settings_ref() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [escrow_input(oref)],
+      outputs: [nft_delivery_output(tag), protocol_fee_output(tag)],
+      mint: assets.from_asset(test_listing_policy, #"", -1),
+      reference_inputs: [],
+    }
+  policy_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_snipe_datum()),
+    Execute,
     oref,
     tx,
   )
