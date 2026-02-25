@@ -4,7 +4,7 @@ use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
-use sniper/types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
+use types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
 
 /// Settings Spending Validator (Continuous State)
 ///

@@ -7,11 +7,11 @@ use cardano/assets.{PolicyId}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
-use sniper/types.{
+use types.{
   Cancel, Execute, SettingsDatum, SnipeDatum, SpendRedeemer,
   percentage_denominator, settings_nft_name,
 }
-use sniper/utils.{compute_output_tag, signed_by}
+use utils.{compute_output_tag, signed_by}
 
 /// Snipe Escrow Spending Validator
 ///

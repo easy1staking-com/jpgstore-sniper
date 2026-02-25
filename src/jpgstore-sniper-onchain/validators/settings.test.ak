@@ -7,7 +7,7 @@ use cardano/transaction.{
 use settings.{
   base_input, mint_script_address, test_script_address, test_utxo_ref,
 }
-use sniper/types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
+use types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
 
 const test_policy_id =
   #"00000000000000000000000000000000000000000000000000000011"
