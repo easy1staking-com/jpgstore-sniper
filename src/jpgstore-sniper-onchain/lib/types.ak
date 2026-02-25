@@ -37,7 +37,8 @@ pub fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
 }
 
 pub type MerkleMintRedeemer {
-  nfts: List<ByteArray>,
+  MerkleMint { nfts: List<ByteArray> }
+  MerkleBurn
 }
 
 // ============================================================================
