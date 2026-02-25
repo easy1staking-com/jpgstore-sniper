@@ -175,6 +175,7 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
 
         // Compute tag for double satisfaction prevention
         let tag = compute_output_tag(own_ref)
+        trace @"tag": tag
         let expected_datum = InlineDatum(tag)
 
         expect (protocol_output_opt, Some(nft_destination_output)) =
@@ -212,8 +213,8 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
           assets.has_any_nft(
             nft_destination_output.value,
             snipe_datum.policy_id,
-          ),
-          valid_protocol_output,
+          )?,
+          valid_protocol_output?,
         }
       }
 

@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import scalus.bloxbean.ScalusTransactionEvaluator;
 import scalus.bloxbean.ScriptSupplier;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -77,7 +78,9 @@ public class PurchaseNftV2Test {
 
         log.info("BLOCKFROST_KEY: {}", BLOCKFROST_KEY);
 
-        var assetType = AssetType.fromUnit("4523c5e21d409b81c95b45b0aea275b8ea1406e6cafea5583b9f8a5f000de14042756436303233");
+//        var assetType = AssetType.fromUnit("4523c5e21d409b81c95b45b0aea275b8ea1406e6cafea5583b9f8a5f000de14042756436303233");
+//        var assetType = AssetType.fromUnit("a706fc87764cde4ac018c38bf61630c1065932db49e6f495be3b29f8436f636f4c6f636f426c756550616c6d53314e4654313737");
+        var assetType = AssetType.fromUnit("4523c5e21d409b81c95b45b0aea275b8ea1406e6cafea5583b9f8a5f000de14042756431343036");
 
         var addressUtxo = addressService
                 .getAddressUtxosGivenAsset(JPG_CONTRACT_ADDRESS_V2, assetType.toUnit(), 1, 1, OrderEnum.asc)
@@ -85,7 +88,7 @@ public class PurchaseNftV2Test {
         log.info("addressUtxo: {}", addressUtxo);
 
         var outRefHash = ConstrPlutusData.of(0,
-                ConstrPlutusData.of(0, BytesPlutusData.of(HexUtil.decodeHexString("8b5af333d5ee6166ef168aff8ef6310050bf8dd378995124e018d39534fa845b"))),
+                ConstrPlutusData.of(0, BytesPlutusData.of(HexUtil.decodeHexString(addressUtxo.getTxHash()))),
                 BigIntPlutusData.of(addressUtxo.getOutputIndex())
         );
         // d8799fd8799f58208b5af333d5ee6166ef168aff8ef6310050bf8dd378995124e018d39534fa845bff00ff
@@ -93,6 +96,8 @@ public class PurchaseNftV2Test {
         log.info("outRefHash: {}", outRefHash.serializeToHex());
         log.info("outRefHash: {}", outRefHash.getDatumHash());
         log.info("outRefHash: {}", HexUtil.encodeHexString(Blake2bUtil.blake2bHash256(outRefHash.serializeToBytes())));
+
+        var txFeeDatum = BytesPlutusData.of(outRefHash.getDatumHashAsBytes());
 
         var listingDatumOpt = listingDatumService.findPlutusData(addressUtxo.getTxHash(), addressUtxo.getDataHash());
         if (listingDatumOpt.isEmpty()) {
@@ -122,17 +127,24 @@ public class PurchaseNftV2Test {
 
         var bar = listingDetails.payees().stream().map(PaymentDetails::amount).reduce(Value::add).orElse(Value.builder().build()).getCoin();
 //        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(2L, 98L)).floor();
-        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(25L, 975L)).floor();
-        log.info("jpgStoreFees: {}", jpgStoreFees);
+//        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(25L, 975L)).floor();
+        var jpgStoreFees1 = Rational.from(bar).multiply(Rational.from(20L, 980L)).floor();
+        log.info("jpgStoreFees1: {}", jpgStoreFees1);
 
+        var actualJpgStoreFees = BigInteger.valueOf(1_000_000L).max(jpgStoreFees1);
+        log.info("actualJpgStoreFees: {}", actualJpgStoreFees);
 
         var tx = new ScriptTx()
                 .collectFrom(walletUtxos)
                 .collectFrom(utxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
-                .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(jpgStoreFees), BytesPlutusData.of(HexUtil.decodeHexString("4873d29746dc9d57e3dc3ee30207b6f90e953f999206ceb823c5e004ff2802b3")));
+                .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(actualJpgStoreFees), txFeeDatum);
 
         // payees
-        listingDetails.payees().forEach(payee -> tx.payToAddress(payee.beneficiary(), ValueUtil.toAmountList(payee.amount())));
+        listingDetails.payees()
+                .forEach(payee -> {
+                    log.info("payee: {}, amount: {}", payee.beneficiary(), payee.amount());
+                    tx.payToAddress(payee.beneficiary(), ValueUtil.toAmountList(payee.amount()));
+                });
 
         tx.readFrom("1693c508b6132e89b932754d657d28b24068ff5ff1715fec36c010d4d6470b3d", 0)
                 .withChangeAddress(account.baseAddress());

@@ -77,7 +77,7 @@ public class JpgstoreSniperService {
                         .anyMatch(txOutput -> txOutput.getAddress().equalsIgnoreCase(JPG_CONTRACT_ADDRESS_V1)))
                 .subscribe(tx -> {
 
-                    hybridUtxoSupplier.extractMempoolUtxo(tx);
+//                    hybridUtxoSupplier.extractMempoolUtxo(tx);
 
                     String txHash = TransactionUtil.getTxHash(tx);
 
