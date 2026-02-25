@@ -1,5 +1,5 @@
 use aiken/crypto.{VerificationKeyHash}
-use aiken_merkle_tree/mt.{Proof, Root}
+use aiken_merkle_tree/mt.{Proof}
 use cardano/address.{Address, Credential}
 use cardano/assets.{AssetName, PolicyId}
 
@@ -70,6 +70,10 @@ pub type SpendRedeemer {
 }
 
 pub type MerkleSpendRedeemer {
-  MerkleExecute { proof: Proof<ByteArray> }
+  MerkleExecute {
+    nft_policy_id: PolicyId,
+    nft_asset_name: AssetName,
+    proof: Proof<ByteArray>,
+  }
   MerkleCancel
 }

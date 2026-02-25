@@ -2,16 +2,17 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/math.{max}
 use aiken/math/rational
-use aiken_merkle_tree/mt.{from_list, root}
+use aiken/primitive/bytearray
+use aiken_merkle_tree/mt.{Proof, from_hash, from_list, root, verify_proof}
 use cardano/address.{Address, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId, Value}
+use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use types.{
-  Cancel, Execute, MerkleMintRedeemer, MerkleSnipeDatum, MerkleSpendRedeemer,
-  PolicySnipeDatum, SettingsDatum, SpendRedeemer, percentage_denominator,
-  settings_nft_name,
+  Cancel, Execute, MerkleCancel, MerkleExecute, MerkleMintRedeemer,
+  MerkleSnipeDatum, MerkleSpendRedeemer, PolicySnipeDatum, SettingsDatum,
+  SpendRedeemer, percentage_denominator, settings_nft_name,
 }
 use utils.{compute_output_tag, signed_by}
 
@@ -90,7 +91,48 @@ validator merkle_snipe(settings_nft_policy_id: PolicyId) {
     own_ref: OutputReference,
     tx: Transaction,
   ) {
-    todo
+    expect Some(snipe_datum) = datum
+
+    let (own_input, escrow_script_hash) = validate_spend_burning(own_ref, tx)
+
+    let validate_nft_sent =
+      fn(
+        nft_policy_id: PolicyId,
+        nft_asset_name: AssetName,
+        proof: Proof<ByteArray>,
+        value: Value,
+      ) -> Bool {
+        let root = from_hash(snipe_datum.merkle_root)
+        let is_valid_proof =
+          verify_proof(
+            root,
+            bytearray.concat(nft_policy_id, nft_asset_name),
+            proof,
+          )
+        let is_nft_sent = assets.has_nft(value, nft_policy_id, nft_asset_name)?
+        and {
+          is_valid_proof?,
+          is_nft_sent?,
+        }
+      }
+
+    when redeemer is {
+      MerkleExecute { nft_policy_id, nft_asset_name, proof } ->
+        validate_spend_execute(
+          settings_nft_policy_id,
+          snipe_datum.nft_destination,
+          snipe_datum.protocol_fee,
+          own_ref,
+          own_input,
+          escrow_script_hash,
+          tx,
+          validate_nft_sent(nft_policy_id, nft_asset_name, proof, _),
+        )
+
+      MerkleCancel ->
+        // In case of cancel all I need to check is whether the tx is signed by the owner.
+        signed_by(tx, snipe_datum.owner_pkh)
+    }
   }
 
   else(_) {
@@ -311,16 +353,20 @@ fn validate_spend_execute(
         }
       },
     )
-
-  and {
-    // if protocol fee is 0, we don't need the output
+  // if protocol fee is 0, we don't need the output
+  let is_protocol_fee_valid =
     when protocol_output_opt is {
       Some(protocol_output) ->
         assets.lovelace_of(protocol_output.value) >= protocol_fee
       _ -> protocol_fee == 0
-    },
-    // assets.has_any_nft(nft_destination_output.value, snipe_datum.policy_id)?
-    validate_nft_sent(nft_destination_output.value),
+    }
+  // assets.has_any_nft(nft_destination_output.value, snipe_datum.policy_id)?
+  let is_nft_sent_to_destination =
+    validate_nft_sent(nft_destination_output.value)
+
+  and {
+    is_protocol_fee_valid?,
+    is_nft_sent_to_destination?,
   }
 }
 
@@ -877,8 +923,8 @@ test execute_bare_utxo_fails_if_other_inputs_have_nft() fail {
       ..transaction.placeholder,
       inputs: [input_no_nft, input_with_nft],
       outputs: [nft_delivery_output(tag), protocol_fee_output(tag)],
-      // Only burning 0, but there's 1 NFT in the other input
-      mint: assets.zero,
+      mint: // Only burning 0, but there's 1 NFT in the other input
+      assets.zero,
       reference_inputs: [settings_ref_input()],
     }
   policy_snipe.spend(
@@ -1189,8 +1235,8 @@ test execute_succeeds_with_protocol_fee_bypass() {
     Transaction {
       ..transaction.placeholder,
       inputs: [bypass_input],
-      // No protocol fee output — bypassed because datum says 0
-      outputs: [nft_delivery_output(tag)],
+      outputs: // No protocol fee output — bypassed because datum says 0
+      [nft_delivery_output(tag)],
       mint: assets.from_asset(test_listing_policy, #"", -1),
       reference_inputs: [settings_ref_input()],
     }
