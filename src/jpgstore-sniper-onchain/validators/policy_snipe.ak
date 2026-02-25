@@ -2,14 +2,16 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/math.{max}
 use aiken/math/rational
+use aiken_merkle_tree/mt.{from_list, root}
 use cardano/address.{Address, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId}
+use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use types.{
-  Cancel, Execute, SettingsDatum, SnipeDatum, SpendRedeemer,
-  percentage_denominator, settings_nft_name,
+  Cancel, Execute, MerkleMintRedeemer, MerkleSnipeDatum, MerkleSpendRedeemer,
+  PolicySnipeDatum, SettingsDatum, SpendRedeemer, percentage_denominator,
+  settings_nft_name,
 }
 use utils.{compute_output_tag, signed_by}
 
@@ -30,193 +32,36 @@ use utils.{compute_output_tag, signed_by}
 ///   - Listing NFT is burned (prevents reuse with bogus fees)
 validator policy_snipe(settings_nft_policy_id: PolicyId) {
   mint(_redeemer: Data, policy_id: PolicyId, tx: Transaction) {
-    let mint_dict = assets.to_dict(tx.mint)
-    expect dict.size(mint_dict) == 1
-    expect Some(minted_tokens) = dict.get(mint_dict, policy_id)
-    expect dict.size(minted_tokens) == 1
-    expect Some(num_minted_nft) = dict.get(minted_tokens, #"")
-
-    if num_minted_nft > 0 {
-      // 1. Find settings reference input (contains settings NFT)
-      expect Some(settings_ref_input) =
-        list.find(
-          tx.reference_inputs,
-          fn(input) {
-            assets.has_nft(
-              input.output.value,
-              settings_nft_policy_id,
-              settings_nft_name,
-            )
-          },
-        )
-      expect InlineDatum(settings_data) = settings_ref_input.output.datum
-      expect settings: SettingsDatum = settings_data
-
-      let expected_nft_value = assets.from_asset(policy_id, #"", 1)
-
-      let expected_num_nft_minted =
-        list.foldl(
-          tx.outputs,
-          0,
-          fn(output, acc) {
-            when output.address.payment_credential is {
-              Script(script_hash) ->
-                if script_hash == policy_id {
-                  trace @"Found output with correct policy: "
-
-                  expect Some(stake_credentials) =
-                    output.address.stake_credential
-                  expect Inline(stake_cred) = stake_credentials
-                  expect stake_cred == settings.stake_credential
-
-                  // Beside ada, just exactly 1 NFT under the policy
-                  expect
-                    assets.without_lovelace(output.value) == expected_nft_value
-
-                  expect InlineDatum(output_datum) = output.datum
-                  expect snipe_datum: SnipeDatum = output_datum
-
-                  let (protocol_fees, operator_fees) =
-                    calculate_fees(settings, snipe_datum)
-                  let expected_min_lovelace_locked =
-                    snipe_datum.max_price + protocol_fees + operator_fees + settings.tx_fee_budget
-
-                  trace @"snipe_datum.protocol_fee: ": snipe_datum.protocol_fee
-                  trace @"protocol_fees: ": protocol_fees
-
-                  expect snipe_datum.protocol_fee == protocol_fees
-                  expect
-                    assets.lovelace_of(output.value) >= expected_min_lovelace_locked
-
-                  acc + 1
-                } else {
-                  acc
-                }
-              _ -> acc
-            }
-          },
-        )
-
-      (num_minted_nft == expected_num_nft_minted)?
-    } else {
-      // if burning, we're spending the utxo (either executing the snipe or cancelling it), so we defer to spend redeemer for checks
-      True
-    }
+    validate_mint(
+      settings_nft_policy_id,
+      policy_id,
+      tx,
+      valid_policy_datums_get_min_locked_amount,
+    )
   }
 
   spend(
-    datum: Option<SnipeDatum>,
+    datum: Option<PolicySnipeDatum>,
     redeemer: SpendRedeemer,
     own_ref: OutputReference,
     tx: Transaction,
   ) {
-    // The common part is just counting the spend addresses. and negate the minting.
-    // Then each spend ensure the logic holds (if cancel just signed by owner, if execute check the outputs, they all check the burn)
-    // We could make that only early input performs burn check?
-
-    // Find own input
-    expect Some(own_input) =
-      list.find(tx.inputs, fn(input) { input.output_reference == own_ref })
-
-    // Get Script Hash
-    expect Script(escrow_script_hash) =
-      own_input.output.address.payment_credential
-
-    // Select inputs for this contract and do generic part (i.e. if there's an NFT guarding the utxo, it must be burned)
-    let amount_nft_to_burn =
-      list.foldl(
-        tx.inputs,
-        0,
-        fn(input, acc) {
-          when input.output.address.payment_credential is {
-            Script(script_hash) ->
-              if script_hash == escrow_script_hash {
-                // If there's more than 1 input from the same script, fail (could be used to bypass the burn check by having one input with the NFT and another without and not burning)
-                if assets.has_nft(input.output.value, escrow_script_hash, #"") {
-                  acc + 1
-                } else {
-                  acc
-                }
-              } else {
-                acc
-              }
-            _ -> acc
-          }
-        },
-      )
-
-    // Ensure all the NFT are burned as part of this tx. This will prevent free floating unauthorised NFTs
-    let expected_burned_amount =
-      assets.from_asset(escrow_script_hash, #"", -1 * amount_nft_to_burn)
-
-    expect tx.mint == expected_burned_amount
-
     expect Some(snipe_datum) = datum
 
+    let (own_input, escrow_script_hash) = validate_spend_burning(own_ref, tx)
+
     when redeemer is {
-      Execute -> {
-        expect assets.has_nft(own_input.output.value, escrow_script_hash, #"")
-
-        // Ensure the own input has the NFT
-        // Get PRotocol Settings from reference input
-        expect Some(settings_ref_input) =
-          list.find(
-            tx.reference_inputs,
-            fn(input) {
-              assets.has_nft(
-                input.output.value,
-                settings_nft_policy_id,
-                settings_nft_name,
-              )
-            },
-          )
-        expect InlineDatum(settings_data) = settings_ref_input.output.datum
-        expect settings: SettingsDatum = settings_data
-
-        // Compute tag for double satisfaction prevention
-        let tag = compute_output_tag(own_ref)
-        trace @"tag": tag
-        let expected_datum = InlineDatum(tag)
-
-        expect (protocol_output_opt, Some(nft_destination_output)) =
-          list.foldl(
-            tx.outputs,
-            (None, None),
-            fn(output, acc) {
-              trace @"output"
-              if output.datum == expected_datum {
-                trace @"matching datum"
-                if output.address == snipe_datum.nft_destination {
-                  trace @"Found output to destination with correct tag"
-                  (acc.1st, Some(output))
-                } else if output.address == settings.protocol_treasury {
-                  trace @"Found output to treasury with correct tag"
-                  (Some(output), acc.2nd)
-                } else {
-                  acc
-                }
-              } else {
-                acc
-              }
-            },
-          )
-
-        let valid_protocol_output =
-          when protocol_output_opt is {
-            Some(protocol_output) ->
-              assets.lovelace_of(protocol_output.value) >= snipe_datum.protocol_fee
-            _ -> snipe_datum.protocol_fee == 0
-          }
-
-        // if protocol fee is 0, we don't need the output
-        and {
-          assets.has_any_nft(
-            nft_destination_output.value,
-            snipe_datum.policy_id,
-          )?,
-          valid_protocol_output?,
-        }
-      }
+      Execute ->
+        validate_spend_execute(
+          settings_nft_policy_id,
+          snipe_datum.nft_destination,
+          snipe_datum.protocol_fee,
+          own_ref,
+          own_input,
+          escrow_script_hash,
+          tx,
+          fn(value) { assets.has_any_nft(value, snipe_datum.policy_id)? },
+        )
 
       Cancel ->
         // In case of cancel all I need to check is whether the tx is signed by the owner.
@@ -229,11 +74,258 @@ validator policy_snipe(settings_nft_policy_id: PolicyId) {
   }
 }
 
-pub fn calculate_fees(
+validator merkle_snipe(settings_nft_policy_id: PolicyId) {
+  mint(redeemer: MerkleMintRedeemer, policy_id: PolicyId, tx: Transaction) {
+    validate_mint(
+      settings_nft_policy_id,
+      policy_id,
+      tx,
+      valid_merkle_datums_get_min_locked_amount(redeemer, _, _),
+    )
+  }
+
+  spend(
+    datum: Option<MerkleSnipeDatum>,
+    redeemer: MerkleSpendRedeemer,
+    own_ref: OutputReference,
+    tx: Transaction,
+  ) {
+    todo
+  }
+
+  else(_) {
+    fail
+  }
+}
+
+fn validate_mint(
+  settings_nft_policy_id: PolicyId,
+  policy_id: PolicyId,
+  tx: Transaction,
+  valdate_get_expected_locked_value: fn(SettingsDatum, Data) -> Int,
+) -> Bool {
+  let mint_dict = assets.to_dict(tx.mint)
+  expect dict.size(mint_dict) == 1
+  expect Some(minted_tokens) = dict.get(mint_dict, policy_id)
+  expect dict.size(minted_tokens) == 1
+  expect Some(num_minted_nft) = dict.get(minted_tokens, #"")
+
+  if num_minted_nft > 0 {
+    // 1. Find settings reference input (contains settings NFT)
+    expect Some(settings_ref_input) =
+      list.find(
+        tx.reference_inputs,
+        fn(input) {
+          assets.has_nft(
+            input.output.value,
+            settings_nft_policy_id,
+            settings_nft_name,
+          )
+        },
+      )
+    expect InlineDatum(settings_data) = settings_ref_input.output.datum
+    expect settings: SettingsDatum = settings_data
+
+    let expected_nft_value = assets.from_asset(policy_id, #"", 1)
+
+    let expected_num_nft_minted =
+      list.foldl(
+        tx.outputs,
+        0,
+        fn(output, acc) {
+          when output.address.payment_credential is {
+            Script(script_hash) ->
+              if script_hash == policy_id {
+                trace @"Found output with correct policy: "
+
+                expect Some(stake_credentials) = output.address.stake_credential
+                expect Inline(stake_cred) = stake_credentials
+                expect stake_cred == settings.stake_credential
+
+                // Beside ada, just exactly 1 NFT under the policy
+                expect
+                  assets.without_lovelace(output.value) == expected_nft_value
+
+                expect InlineDatum(output_datum) = output.datum
+                let expected_min_lovelace_locked =
+                  valdate_get_expected_locked_value(settings, output_datum)
+                expect
+                  assets.lovelace_of(output.value) >= expected_min_lovelace_locked
+
+                acc + 1
+              } else {
+                acc
+              }
+            _ -> acc
+          }
+        },
+      )
+
+    (num_minted_nft == expected_num_nft_minted)?
+  } else {
+    // if burning, we're spending the utxo (either executing the snipe or cancelling it), so we defer to spend redeemer for checks
+    True
+  }
+}
+
+fn valid_policy_datums_get_min_locked_amount(
   settings: SettingsDatum,
-  snipe_datum: SnipeDatum,
-) -> (Int, Int) {
-  let max_price = rational.from_int(snipe_datum.max_price)
+  output_datum: Data,
+) -> Int {
+  expect snipe_datum: PolicySnipeDatum = output_datum
+
+  let (protocol_fees, operator_fees) =
+    calculate_fees(settings, snipe_datum.max_price)
+  let expected_min_lovelace_locked =
+    snipe_datum.max_price + protocol_fees + operator_fees + settings.tx_fee_budget
+
+  trace @"snipe_datum.protocol_fee: ": snipe_datum.protocol_fee
+  trace @"protocol_fees: ": protocol_fees
+
+  expect snipe_datum.protocol_fee == protocol_fees
+  expected_min_lovelace_locked
+}
+
+fn valid_merkle_datums_get_min_locked_amount(
+  redeemer: MerkleMintRedeemer,
+  settings: SettingsDatum,
+  output_datum: Data,
+) -> Int {
+  expect snipe_datum: MerkleSnipeDatum = output_datum
+
+  // Test MerkleRoot
+  let merkle_root = from_list(redeemer.nfts, identity) |> root
+  expect merkle_root.inner == snipe_datum.merkle_root
+
+  let (protocol_fees, operator_fees) =
+    calculate_fees(settings, snipe_datum.max_price)
+  let expected_min_lovelace_locked =
+    snipe_datum.max_price + protocol_fees + operator_fees + settings.tx_fee_budget
+
+  trace @"snipe_datum.protocol_fee: ": snipe_datum.protocol_fee
+  trace @"protocol_fees: ": protocol_fees
+
+  expect snipe_datum.protocol_fee == protocol_fees
+  expected_min_lovelace_locked
+}
+
+fn validate_spend_burning(
+  own_ref: OutputReference,
+  self: Transaction,
+) -> (Input, ByteArray) {
+  // The common part is just counting the spend addresses. and negate the minting.
+  // Then each spend ensure the logic holds (if cancel just signed by owner, if execute check the outputs, they all check the burn)
+  // We could make that only early input performs burn check?
+
+  // Find own input
+  expect Some(own_input) =
+    list.find(self.inputs, fn(input) { input.output_reference == own_ref })
+
+  // Get Script Hash
+  expect Script(escrow_script_hash) =
+    own_input.output.address.payment_credential
+
+  // Select inputs for this contract and do generic part (i.e. if there's an NFT guarding the utxo, it must be burned)
+  let amount_nft_to_burn =
+    list.foldl(
+      self.inputs,
+      0,
+      fn(input, acc) {
+        when input.output.address.payment_credential is {
+          Script(script_hash) ->
+            if script_hash == escrow_script_hash {
+              // If there's more than 1 input from the same script, fail (could be used to bypass the burn check by having one input with the NFT and another without and not burning)
+              if assets.has_nft(input.output.value, escrow_script_hash, #"") {
+                acc + 1
+              } else {
+                acc
+              }
+            } else {
+              acc
+            }
+          _ -> acc
+        }
+      },
+    )
+
+  // Ensure all the NFT are burned as part of this tx. This will prevent free floating unauthorised NFTs
+  let expected_burned_amount =
+    assets.from_asset(escrow_script_hash, #"", -1 * amount_nft_to_burn)
+
+  expect self.mint == expected_burned_amount
+  (own_input, escrow_script_hash)
+}
+
+fn validate_spend_execute(
+  settings_nft_policy_id: PolicyId,
+  nft_destination: Address,
+  protocol_fee: Int,
+  own_ref: OutputReference,
+  own_input: Input,
+  escrow_script_hash: ByteArray,
+  self: Transaction,
+  validate_nft_sent: fn(Value) -> Bool,
+) -> Bool {
+  expect assets.has_nft(own_input.output.value, escrow_script_hash, #"")
+
+  // Ensure the own input has the NFT
+  // Get PRotocol Settings from reference input
+  expect Some(settings_ref_input) =
+    list.find(
+      self.reference_inputs,
+      fn(input) {
+        assets.has_nft(
+          input.output.value,
+          settings_nft_policy_id,
+          settings_nft_name,
+        )
+      },
+    )
+  expect InlineDatum(settings_data) = settings_ref_input.output.datum
+  expect settings: SettingsDatum = settings_data
+
+  // Compute tag for double satisfaction prevention
+  let tag = compute_output_tag(own_ref)
+  trace @"tag": tag
+  let expected_datum = InlineDatum(tag)
+
+  expect (protocol_output_opt, Some(nft_destination_output)) =
+    list.foldl(
+      self.outputs,
+      (None, None),
+      fn(output, acc) {
+        trace @"output"
+        if output.datum == expected_datum {
+          trace @"matching datum"
+          if output.address == nft_destination {
+            trace @"Found output to destination with correct tag"
+            (acc.1st, Some(output))
+          } else if output.address == settings.protocol_treasury {
+            trace @"Found output to treasury with correct tag"
+            (Some(output), acc.2nd)
+          } else {
+            acc
+          }
+        } else {
+          acc
+        }
+      },
+    )
+
+  and {
+    // if protocol fee is 0, we don't need the output
+    when protocol_output_opt is {
+      Some(protocol_output) ->
+        assets.lovelace_of(protocol_output.value) >= protocol_fee
+      _ -> protocol_fee == 0
+    },
+    // assets.has_any_nft(nft_destination_output.value, snipe_datum.policy_id)?
+    validate_nft_sent(nft_destination_output.value),
+  }
+}
+
+pub fn calculate_fees(settings: SettingsDatum, max_price: Int) -> (Int, Int) {
+  let max_price = rational.from_int(max_price)
   let protocol_fees =
     if settings.protocol_fee_pct == 0 {
       math.max(0, settings.min_protocol_fee)
@@ -298,8 +390,8 @@ fn test_settings() -> SettingsDatum {
 }
 
 // max_price=100 ADA → op_fee=max(2_000_000, 1_000_000)=2_000_000, proto=max(1_000_000, 1_000_000)=1_000_000
-fn test_snipe_datum() -> SnipeDatum {
-  SnipeDatum {
+fn test_snipe_datum() -> PolicySnipeDatum {
+  PolicySnipeDatum {
     owner_pkh: test_user_pkh,
     nft_destination: Address {
       payment_credential: VerificationKey(test_user_pkh),
@@ -321,7 +413,7 @@ fn test_escrow_address() -> Address {
 /// Locked = 100 + 2 + 1 + 3 = 106 ADA
 fn test_locked_lovelace(
   protocol_settings: SettingsDatum,
-  snipe_datum: SnipeDatum,
+  snipe_datum: PolicySnipeDatum,
 ) -> Int {
   snipe_datum.max_price + max(
     snipe_datum.max_price * protocol_settings.operator_fee_pct / percentage_denominator,
@@ -499,7 +591,7 @@ test listing_nft_mint_success_min_fee_kicks_in() {
   // but min fees are 1 ADA each, so fees = 1 + 1 = 2 ADA
   // locked = 5 + 1 + 1 + 3 = 10 ADA
   let small_datum =
-    SnipeDatum {
+    PolicySnipeDatum {
       owner_pkh: test_user_pkh,
       nft_destination: Address {
         payment_credential: VerificationKey(test_user_pkh),
@@ -557,7 +649,7 @@ test listing_nft_mint_success_zero_protocol_fee() {
       },
     }
   // locked = 100 + 2 + 0 + 3 = 105 ADA
-  let promo_datum = SnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
+  let promo_datum = PolicySnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
   let promo_output =
     Output {
       address: test_escrow_address(),
@@ -852,7 +944,7 @@ test execute_fails_insufficient_protocol_fee() fail {
 test execute_success_zero_protocol_fee() {
   let oref = test_snipe_oref()
   let tag = compute_output_tag(oref)
-  let promo_datum = SnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
+  let promo_datum = PolicySnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
   let promo_input =
     Input {
       output_reference: oref,
@@ -1078,7 +1170,7 @@ test execute_succeeds_with_protocol_fee_bypass() {
   let oref = test_snipe_oref()
   let tag = compute_output_tag(oref)
   // Datum with protocol_fee: 0, even though settings require > 0
-  let bypass_datum = SnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
+  let bypass_datum = PolicySnipeDatum { ..test_snipe_datum(), protocol_fee: 0 }
   let bypass_input =
     Input {
       output_reference: oref,
@@ -1158,7 +1250,7 @@ test listing_nft_mint_fails_with_no_stake_credential() fail {
 
 test listing_nft_mint_success_multiple_outputs() {
   let other_snipe =
-    SnipeDatum {
+    PolicySnipeDatum {
       owner_pkh: test_user_pkh,
       nft_destination: Address {
         payment_credential: VerificationKey(test_user_pkh),

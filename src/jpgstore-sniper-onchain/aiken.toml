@@ -20,4 +20,9 @@ name = "aiken-lang/fuzz"
 version = "v2.1.1"
 source = "github"
 
+[[dependencies]]
+name = "easy1staking-com/aiken-merkle-tree"
+version = "feat/migrate-latest-stdlib"
+source = "github"
+
 [config]

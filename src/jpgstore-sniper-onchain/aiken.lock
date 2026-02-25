@@ -11,6 +11,11 @@ name = "aiken-lang/fuzz"
 version = "v2.1.1"
 source = "github"
 
+[[requirements]]
+name = "easy1staking-com/aiken-merkle-tree"
+version = "feat/migrate-latest-stdlib"
+source = "github"
+
 [[packages]]
 name = "aiken-lang/stdlib"
 version = "v3.0.0"
@@ -23,4 +28,11 @@ version = "v2.1.1"
 requirements = []
 source = "github"
 
+[[packages]]
+name = "easy1staking-com/aiken-merkle-tree"
+version = "feat/migrate-latest-stdlib"
+requirements = []
+source = "github"
+
 [etags]
+"easy1staking-com/aiken-merkle-tree@feat/migrate-latest-stdlib" = [{ secs_since_epoch = 1772035722, nanos_since_epoch = 175919000 }, "bf6d21903cb91a6b27aadde3ba17360fa82955cb30425adadba4fde12281083c"]

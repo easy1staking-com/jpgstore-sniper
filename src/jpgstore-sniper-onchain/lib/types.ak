@@ -1,4 +1,5 @@
 use aiken/crypto.{VerificationKeyHash}
+use aiken_merkle_tree/mt.{Proof, Root}
 use cardano/address.{Address, Credential}
 use cardano/assets.{AssetName, PolicyId}
 
@@ -35,14 +36,26 @@ pub fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
   }
 }
 
+pub type MerkleMintRedeemer {
+  nfts: List<ByteArray>,
+}
+
 // ============================================================================
 // Snipe Datum (lives at snipe escrow address, inline)
 // ============================================================================
 
-pub type SnipeDatum {
+pub type PolicySnipeDatum {
   owner_pkh: VerificationKeyHash,
   nft_destination: Address,
   policy_id: PolicyId,
+  max_price: Int,
+  protocol_fee: Int,
+}
+
+pub type MerkleSnipeDatum {
+  owner_pkh: VerificationKeyHash,
+  nft_destination: Address,
+  merkle_root: ByteArray,
   max_price: Int,
   protocol_fee: Int,
 }
@@ -54,4 +67,9 @@ pub type SnipeDatum {
 pub type SpendRedeemer {
   Execute
   Cancel
+}
+
+pub type MerkleSpendRedeemer {
+  MerkleExecute { proof: Proof<ByteArray> }
+  MerkleCancel
 }
