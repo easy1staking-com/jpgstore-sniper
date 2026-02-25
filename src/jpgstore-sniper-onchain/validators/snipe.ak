@@ -3,7 +3,7 @@ use aiken/collection/list
 use aiken/math.{max}
 use aiken/math/rational
 use aiken/primitive/bytearray
-use aiken_merkle_tree/mt.{Proof, from_hash, from_list, root, verify_proof}
+use aiken_merkle_tree/mt.{Proof, from_hash, from_list, get_proof, is_member, root}
 use cardano/address.{Address, Inline, Script, VerificationKey}
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{
@@ -104,10 +104,11 @@ validator merkle_snipe(settings_nft_policy_id: PolicyId) {
       ) -> Bool {
         let root = from_hash(snipe_datum.merkle_root)
         let is_valid_proof =
-          verify_proof(
+          is_member(
             root,
             bytearray.concat(nft_policy_id, nft_asset_name),
             proof,
+            identity,
           )
         let is_nft_sent = assets.has_nft(value, nft_policy_id, nft_asset_name)?
         and {
@@ -234,6 +235,9 @@ fn valid_merkle_datums_get_min_locked_amount(
   output_datum: Data,
 ) -> Int {
   expect snipe_datum: MerkleSnipeDatum = output_datum
+
+  // Reject empty NFT lists — no valid proof exists for an empty tree
+  expect !list.is_empty(redeemer.nfts)
 
   // Test MerkleRoot
   let merkle_root = from_list(redeemer.nfts, identity) |> root
@@ -1419,6 +1423,1031 @@ test execute_fails_without_settings_ref() fail {
     Some(test_snipe_datum()),
     Execute,
     oref,
+    tx,
+  )
+}
+
+// ============================================================================
+// Merkle Snipe Tests
+// ============================================================================
+
+const test_merkle_listing_policy =
+  #"00000000000000000000000000000000000000000000000000000066"
+
+const test_nft_policy_1 =
+  #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"
+
+const test_nft_policy_2 =
+  #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2"
+
+const test_nft_policy_3 =
+  #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3"
+
+const test_nft_name_1 = "nft_001"
+
+const test_nft_name_2 = "nft_002"
+
+const test_nft_name_3 = "nft_003"
+
+fn test_merkle_nft_list() -> List<ByteArray> {
+  [
+    bytearray.concat(test_nft_policy_1, test_nft_name_1),
+    bytearray.concat(test_nft_policy_2, test_nft_name_2),
+    bytearray.concat(test_nft_policy_3, test_nft_name_3),
+  ]
+}
+
+fn test_merkle_root_hash() -> ByteArray {
+  let tree = from_list(test_merkle_nft_list(), identity)
+  let r = root(tree)
+  r.inner
+}
+
+fn test_merkle_snipe_datum() -> MerkleSnipeDatum {
+  MerkleSnipeDatum {
+    owner_pkh: test_user_pkh,
+    nft_destination: Address {
+      payment_credential: VerificationKey(test_user_pkh),
+      stake_credential: None,
+    },
+    merkle_root: test_merkle_root_hash(),
+    max_price: 100_000_000,
+    protocol_fee: 1_000_000,
+  }
+}
+
+fn test_merkle_escrow_address() -> Address {
+  Address {
+    payment_credential: Script(test_merkle_listing_policy),
+    stake_credential: Some(Inline(VerificationKey(test_stake_pkh))),
+  }
+}
+
+fn merkle_locked_lovelace() -> Int {
+  let s = test_settings()
+  let d = test_merkle_snipe_datum()
+  d.max_price + max(
+    d.max_price * s.operator_fee_pct / percentage_denominator,
+    s.min_operator_fee,
+  ) + max(
+    d.max_price * s.protocol_fee_pct / percentage_denominator,
+    s.min_protocol_fee,
+  ) + s.tx_fee_budget
+}
+
+fn merkle_escrow_output_with_nft() -> Output {
+  Output {
+    address: test_merkle_escrow_address(),
+    value: assets.from_lovelace(merkle_locked_lovelace())
+      |> assets.add(test_merkle_listing_policy, #"", 1),
+    datum: InlineDatum(test_merkle_snipe_datum()),
+    reference_script: None,
+  }
+}
+
+fn merkle_escrow_input(oref: OutputReference) -> Input {
+  Input {
+    output_reference: oref,
+    output: Output {
+      address: Address {
+        payment_credential: Script(test_merkle_listing_policy),
+        stake_credential: None,
+      },
+      value: assets.from_lovelace(merkle_locked_lovelace())
+        |> assets.add(test_merkle_listing_policy, #"", 1),
+      datum: InlineDatum(test_merkle_snipe_datum()),
+      reference_script: None,
+    },
+  }
+}
+
+fn merkle_nft_delivery_output(tag: ByteArray) -> Output {
+  Output {
+    address: test_owner_address(),
+    value: assets.from_lovelace(2_000_000)
+      |> assets.add(test_nft_policy_1, test_nft_name_1, 1),
+    datum: InlineDatum(tag),
+    reference_script: None,
+  }
+}
+
+fn merkle_protocol_fee_output(tag: ByteArray) -> Output {
+  Output {
+    address: test_treasury_address(),
+    value: assets.from_lovelace(1_000_000),
+    datum: InlineDatum(tag),
+    reference_script: None,
+  }
+}
+
+fn test_merkle_proof_for_nft1() -> Proof<ByteArray> {
+  let tree = from_list(test_merkle_nft_list(), identity)
+  expect Some(proof) =
+    get_proof(tree, bytearray.concat(test_nft_policy_1, test_nft_name_1), identity)
+  proof
+}
+
+// === Merkle Mint Tests ===
+
+test merkle_mint_success() {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [merkle_escrow_output_with_nft()],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_wrong_merkle_root() fail {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let bad_datum =
+    MerkleSnipeDatum {
+      ..test_merkle_snipe_datum(),
+      merkle_root: #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    }
+  let bad_output =
+    Output {
+      ..merkle_escrow_output_with_nft(),
+      datum: InlineDatum(bad_datum),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [bad_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_mismatched_nft_list() fail {
+  // Redeemer has different NFTs than what datum's root was built from
+  let wrong_nfts =
+    [
+      bytearray.concat(
+        #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "other",
+      ),
+    ]
+  let redeemer = MerkleMintRedeemer { nfts: wrong_nfts }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [merkle_escrow_output_with_nft()],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_underfunded() fail {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let underfunded_output =
+    Output {
+      address: test_merkle_escrow_address(),
+      value: assets.from_lovelace(50_000_000)
+        |> assets.add(test_merkle_listing_policy, #"", 1),
+      datum: InlineDatum(test_merkle_snipe_datum()),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [underfunded_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_wrong_stake_credential() fail {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let bad_address =
+    Address {
+      payment_credential: Script(test_merkle_listing_policy),
+      stake_credential: Some(Inline(VerificationKey(test_user_pkh))),
+    }
+  let bad_output =
+    Output { ..merkle_escrow_output_with_nft(), address: bad_address }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [bad_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_extra_tokens_in_output() fail {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let dust_policy =
+    #"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  let dusty_output =
+    Output {
+      address: test_merkle_escrow_address(),
+      value: assets.from_lovelace(merkle_locked_lovelace())
+        |> assets.add(test_merkle_listing_policy, #"", 1)
+        |> assets.add(dust_policy, "dust", 1),
+      datum: InlineDatum(test_merkle_snipe_datum()),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [dusty_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+test merkle_mint_fails_wrong_protocol_fee() fail {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let bad_datum =
+    MerkleSnipeDatum { ..test_merkle_snipe_datum(), protocol_fee: 500 }
+  let bad_output =
+    Output {
+      ..merkle_escrow_output_with_nft(),
+      datum: InlineDatum(bad_datum),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [bad_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+// === Merkle Execute Tests ===
+
+test merkle_execute_success() {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_invalid_proof() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  // Get proof for NFT 1 but claim it's for NFT 2
+  let proof = test_merkle_proof_for_nft1()
+  let delivery_output =
+    Output {
+      address: test_owner_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_nft_policy_2, test_nft_name_2, 1),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [delivery_output, merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_2,
+      nft_asset_name: test_nft_name_2,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_nft_not_in_tree() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let unknown_policy =
+    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let delivery_output =
+    Output {
+      address: test_owner_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(unknown_policy, "unknown", 1),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [delivery_output, merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute { nft_policy_id: unknown_policy, nft_asset_name: "unknown", proof: [] },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_without_nft_delivery() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_wrong_nft_in_delivery() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  // Deliver a different NFT than what proof validates
+  let wrong_nft_output =
+    Output {
+      address: test_owner_address(),
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(
+            #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "wrong",
+            1,
+          ),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [wrong_nft_output, merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_without_protocol_fee() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_insufficient_protocol_fee() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let low_fee_output =
+    Output {
+      address: test_treasury_address(),
+      value: assets.from_lovelace(500_000),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), low_fee_output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_without_burn() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.zero,
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_wrong_tag() fail {
+  let oref = test_snipe_oref()
+  let wrong_tag =
+    #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [
+        merkle_nft_delivery_output(wrong_tag),
+        merkle_protocol_fee_output(wrong_tag),
+      ],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_wrong_destination() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let wrong_address =
+    Address {
+      payment_credential: VerificationKey(test_treasury_pkh),
+      stake_credential: None,
+    }
+  let wrong_dest_output =
+    Output {
+      address: wrong_address,
+      value: assets.from_lovelace(2_000_000)
+        |> assets.add(test_nft_policy_1, test_nft_name_1, 1),
+      datum: InlineDatum(tag),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [wrong_dest_output, merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_double_satisfaction() fail {
+  let oref1 = test_snipe_oref()
+  let oref2 =
+    OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000002",
+      output_index: 0,
+    }
+  let tag2 = compute_output_tag(oref2)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref1), merkle_escrow_input(oref2)],
+      outputs: [merkle_nft_delivery_output(tag2), merkle_protocol_fee_output(tag2)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -2),
+      reference_inputs: [settings_ref_input()],
+    }
+  // Spend from oref1's perspective — tag won't match
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref1,
+    tx,
+  )
+}
+
+// === Merkle Cancel Tests ===
+
+test merkle_cancel_success() {
+  let oref = test_snipe_oref()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      extra_signatories: [test_owner_pkh],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleCancel,
+    oref,
+    tx,
+  )
+}
+
+test merkle_cancel_fails_without_owner_sig() fail {
+  let oref = test_snipe_oref()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      extra_signatories: [],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleCancel,
+    oref,
+    tx,
+  )
+}
+
+test merkle_cancel_fails_wrong_signer() fail {
+  let oref = test_snipe_oref()
+  let wrong_pkh = #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      extra_signatories: [wrong_pkh],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleCancel,
+    oref,
+    tx,
+  )
+}
+
+test merkle_cancel_fails_without_burn() fail {
+  let oref = test_snipe_oref()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      extra_signatories: [test_owner_pkh],
+      mint: assets.zero,
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleCancel,
+    oref,
+    tx,
+  )
+}
+
+// === Merkle Security Tests ===
+
+// Documents that datum fee=0 bypasses protocol fee at spend time
+// (mitigated at mint time by settings check)
+test merkle_execute_protocol_fee_bypass_documented() {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let bypass_datum =
+    MerkleSnipeDatum { ..test_merkle_snipe_datum(), protocol_fee: 0 }
+  let bypass_input =
+    Input {
+      output_reference: oref,
+      output: Output {
+        address: Address {
+          payment_credential: Script(test_merkle_listing_policy),
+          stake_credential: None,
+        },
+        value: assets.from_lovelace(merkle_locked_lovelace())
+          |> assets.add(test_merkle_listing_policy, #"", 1),
+        datum: InlineDatum(bypass_datum),
+        reference_script: None,
+      },
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [bypass_input],
+      outputs: [merkle_nft_delivery_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(bypass_datum),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_additional_mint() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  // Mint field has burn (-1) plus an extra mint from another policy — strict equality fails
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1)
+        |> assets.add(
+            #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "extra",
+            1,
+          ),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_bare_utxo_fails() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let input_no_nft =
+    Input {
+      output_reference: oref,
+      output: Output {
+        address: Address {
+          payment_credential: Script(test_merkle_listing_policy),
+          stake_credential: None,
+        },
+        value: assets.from_lovelace(merkle_locked_lovelace()),
+        datum: InlineDatum(test_merkle_snipe_datum()),
+        reference_script: None,
+      },
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [input_no_nft],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.zero,
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_fails_none_datum() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    None,
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_execute_success_single_nft_tree() {
+  let single_nft = bytearray.concat(test_nft_policy_1, test_nft_name_1)
+  let tree = from_list([single_nft], identity)
+  let single_root = root(tree)
+  expect Some(proof) = get_proof(tree, single_nft, identity)
+
+  let single_datum =
+    MerkleSnipeDatum {
+      ..test_merkle_snipe_datum(),
+      merkle_root: single_root.inner,
+    }
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let single_input =
+    Input {
+      output_reference: oref,
+      output: Output {
+        address: Address {
+          payment_credential: Script(test_merkle_listing_policy),
+          stake_credential: None,
+        },
+        value: assets.from_lovelace(merkle_locked_lovelace())
+          |> assets.add(test_merkle_listing_policy, #"", 1),
+        datum: InlineDatum(single_datum),
+        reference_script: None,
+      },
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [single_input],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [settings_ref_input()],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(single_datum),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_mint_fails_empty_nft_list() fail {
+  let redeemer = MerkleMintRedeemer { nfts: [] }
+  // Empty tree root is "" — use that in datum
+  let empty_datum =
+    MerkleSnipeDatum { ..test_merkle_snipe_datum(), merkle_root: "" }
+  let output =
+    Output {
+      ..merkle_escrow_output_with_nft(),
+      datum: InlineDatum(empty_datum),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [output],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 1),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
+    tx,
+  )
+}
+
+// === Merkle Batch / Edge Tests ===
+
+test merkle_execute_success_batch() {
+  let oref1 = test_snipe_oref()
+  let oref2 =
+    OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000002",
+      output_index: 0,
+    }
+  let tag1 = compute_output_tag(oref1)
+  let tag2 = compute_output_tag(oref2)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref1), merkle_escrow_input(oref2)],
+      outputs: [
+        merkle_nft_delivery_output(tag1),
+        merkle_protocol_fee_output(tag1),
+        merkle_nft_delivery_output(tag2),
+        merkle_protocol_fee_output(tag2),
+      ],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -2),
+      reference_inputs: [settings_ref_input()],
+    }
+  // Verify from oref1's perspective
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref1,
+    tx,
+  )
+}
+
+test merkle_execute_fails_without_settings_ref() fail {
+  let oref = test_snipe_oref()
+  let tag = compute_output_tag(oref)
+  let proof = test_merkle_proof_for_nft1()
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [merkle_escrow_input(oref)],
+      outputs: [merkle_nft_delivery_output(tag), merkle_protocol_fee_output(tag)],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", -1),
+      reference_inputs: [],
+    }
+  merkle_snipe.spend(
+    test_settings_nft_policy,
+    Some(test_merkle_snipe_datum()),
+    MerkleExecute {
+      nft_policy_id: test_nft_policy_1,
+      nft_asset_name: test_nft_name_1,
+      proof,
+    },
+    oref,
+    tx,
+  )
+}
+
+test merkle_mint_success_multiple_outputs() {
+  let redeemer = MerkleMintRedeemer { nfts: test_merkle_nft_list() }
+  let other_datum =
+    MerkleSnipeDatum {
+      ..test_merkle_snipe_datum(),
+      max_price: 50_000_000,
+      protocol_fee: 1_000_000,
+    }
+  let other_locked =
+    50_000_000 + max(
+      50_000_000 * test_settings().operator_fee_pct / percentage_denominator,
+      test_settings().min_operator_fee,
+    ) + max(
+      50_000_000 * test_settings().protocol_fee_pct / percentage_denominator,
+      test_settings().min_protocol_fee,
+    ) + test_settings().tx_fee_budget
+  let output2 =
+    Output {
+      address: test_merkle_escrow_address(),
+      value: assets.from_lovelace(other_locked)
+        |> assets.add(test_merkle_listing_policy, #"", 1),
+      datum: InlineDatum(other_datum),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [consumed_user_input()],
+      reference_inputs: [settings_ref_input()],
+      outputs: [merkle_escrow_output_with_nft(), output2],
+      mint: assets.from_asset(test_merkle_listing_policy, #"", 2),
+    }
+  merkle_snipe.mint(
+    test_settings_nft_policy,
+    redeemer,
+    test_merkle_listing_policy,
     tx,
   )
 }
