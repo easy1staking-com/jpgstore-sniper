@@ -25,7 +25,7 @@ public class JpgStoreApiClient {
     public Optional<JsonNode> fetchCollection(String policyId) {
         try {
             JsonNode response = webClient.get()
-                    .uri("/collection/{policyId}", policyId)
+                    .uri("/collection/{targetHash}", policyId)
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block();

@@ -20,17 +20,6 @@ public class AddressTest {
     }
 
     @Test
-    public void address() {
-        var mnemonic = System.getenv("WALLET_MNEMONIC");
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                var account = Account.createFromMnemonic(Networks.mainnet(), mnemonic, i, j);
-                log.info("i: {}, j: {}, address: {}", i, j, account.getBaseAddress().getAddress());
-            }
-        }
-    }
-
-    @Test
     public void jpgContractAddresses() {
         var v1 = new Address(Constants.JPG_CONTRACT_ADDRESS_V1);
         var paymentV1 = AddressProvider.getEntAddress(Credential.fromScript(v1.getPaymentCredentialHash().get()), Networks.mainnet());

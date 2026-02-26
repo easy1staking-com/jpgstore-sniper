@@ -8,17 +8,18 @@ import com.bloxbean.cardano.client.util.HexUtil;
 import lombok.Builder;
 
 @Builder(toBuilder = true)
-public record PolicySnipe(String ownerPkh,
-                          Address nftDestination,
-                          String policyId,
-                          Long maxPrice,
-                          Long protocolFee) {
+public record SnipeDatum(String ownerPkh,
+                         Address nftDestination,
+                         // The PolicyId or MerkleTreeRootHash to match against
+                         String targetHash,
+                         Long maxPrice,
+                         Long protocolFee) {
 
     public PlutusData toPlutusData() {
         return ConstrPlutusData.of(0,
                 BytesPlutusData.of(HexUtil.decodeHexString(ownerPkh)),
                 nftDestination.toPlutusData(),
-                BytesPlutusData.of(HexUtil.decodeHexString(policyId)),
+                BytesPlutusData.of(HexUtil.decodeHexString(targetHash)),
                 BigIntPlutusData.of(maxPrice),
                 BigIntPlutusData.of(protocolFee));
     }

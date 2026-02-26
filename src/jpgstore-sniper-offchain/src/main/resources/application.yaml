@@ -40,5 +40,8 @@ store:
 
 apiPrefix: /api/v1
 
+plutus:
+  json-path: classpath:plutus.json
+
 wallet:
   mnemonic: ""

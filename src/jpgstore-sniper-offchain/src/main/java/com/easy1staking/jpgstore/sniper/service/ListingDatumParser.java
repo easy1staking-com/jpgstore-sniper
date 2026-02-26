@@ -146,7 +146,6 @@ public class ListingDatumParser {
     }
 
     public Optional<ListingDetails> extractListingDetailsV2(String datum) {
-        log.info("datum: {}", datum);
         try {
             JsonNode jsonNode = JsonUtil.parseJson(datum);
 
@@ -208,7 +207,6 @@ public class ListingDatumParser {
         var addressRoot = node.path("fields").get(0);
         var paymentPkh = addressRoot.path("fields").get(0).path("fields").get(0).path("bytes").asText();
         var stakingPkh = addressRoot.path("fields").get(1).path("fields").get(0).path("fields").get(0).path("fields").get(0).path("bytes").asText();
-        log.info("paymentPkh: {}, stakingPkh: {}", paymentPkh, stakingPkh);
         var address = AddressProvider.getBaseAddress(Credential.fromKey(paymentPkh), Credential.fromKey(stakingPkh), Networks.mainnet());
         var lovelaces = node.path("fields").get(1).path("int").asLong();
         return new PaymentDetails(address.getAddress(), List.of(new Pair<>(AssetType.ada(), lovelaces)));
