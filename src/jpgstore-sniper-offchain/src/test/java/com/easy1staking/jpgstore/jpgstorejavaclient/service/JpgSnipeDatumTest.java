@@ -29,7 +29,7 @@ import com.bloxbean.cardano.client.util.HexUtil;
 import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.jpgstore.sniper.model.contract.v2.PaymentDetails;
 import com.easy1staking.jpgstore.sniper.model.onchain.Address;
-import com.easy1staking.jpgstore.sniper.model.onchain.PolicySnipe;
+import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatum;
 import com.easy1staking.jpgstore.sniper.model.onchain.Settings;
 import com.easy1staking.jpgstore.sniper.service.HybridUtxoSupplier;
 import com.easy1staking.jpgstore.sniper.service.ListingDatumParser;
@@ -54,7 +54,7 @@ import java.util.Set;
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
 @Slf4j
-public class JpgPolicySnipeTest {
+public class JpgSnipeDatumTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -189,10 +189,10 @@ public class JpgPolicySnipeTest {
 
         hybridUtxoSupplier.add(settingsUtxo);
 
-        var policySnipe = PolicySnipe.builder()
+        var policySnipe = SnipeDatum.builder()
                 .ownerPkh(HexUtil.encodeHexString(sniperCustomerAccount.getBaseAddress().getPaymentCredentialHash().get()))
                 .nftDestination(snipeCustomerAddress)
-                .policyId(collectionPolicyId)
+                .targetHash(collectionPolicyId)
                 .maxPrice(10_000_000L)
                 .protocolFee(1_000_000L)
                 .build();

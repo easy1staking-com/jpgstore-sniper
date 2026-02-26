@@ -119,7 +119,7 @@ public class JpgstoreSniperService {
                                                                         log.info("Policy: {}, Name: {}, Price (ada) {}", multiAsset.getPolicyId(), assetName, details.totalPrice() / 1_000_000);
                                                                         Optional<SniperNFT> match = Optional.empty();
 //                                                                                sniperNFTS.stream()
-//                                                                                .filter(sniperNFT -> sniperNFT.policyId().equalsIgnoreCase(multiAsset.getPolicyId()) &&
+//                                                                                .filter(sniperNFT -> sniperNFT.targetHash().equalsIgnoreCase(multiAsset.getPolicyId()) &&
 //                                                                                        sniperNFT.assetName().equalsIgnoreCase(assetName)).findFirst();
                                                                         if (match.isPresent()) {
                                                                             long maxPriceLovelaces = match.get().maxPrice() * 1_000_000;

@@ -5,13 +5,11 @@ import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.backend.api.DefaultUtxoSupplier;
 import com.bloxbean.cardano.client.backend.api.UtxoService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Vector;
 
-@Service
 @Slf4j
 public class HybridUtxoSupplier extends DefaultUtxoSupplier {
 

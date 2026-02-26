@@ -44,8 +44,9 @@ public class BlockfrostConfig {
     @Bean
     public BFBackendService bfBackendService() {
         log.info("blockfrostUrl: {}, blockfrostKey: {}", blockfrostUrl, blockfrostKey);
-        return new BFBackendService( blockfrostUrl, blockfrostKey);
+        return new BFBackendService(blockfrostUrl, blockfrostKey);
     }
+
 
     @Bean
     public AikenTransactionEvaluator aikenTransactionEvaluator(HybridUtxoSupplier hybridUtxoSupplier,
