@@ -3,12 +3,14 @@ package com.easy1staking.jpgstore.sniper.service;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.bloxbean.cardano.yaci.core.model.RedeemerTag;
+import com.bloxbean.cardano.yaci.core.model.TransactionInput;
 import com.bloxbean.cardano.yaci.store.events.TransactionEvent;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
 import com.easy1staking.jpgstore.sniper.contract.MerkleTreeSnipeContract;
 import com.easy1staking.jpgstore.sniper.contract.PolicyIdSnipeContract;
 import com.easy1staking.jpgstore.sniper.contract.SettingsContract;
 import com.easy1staking.jpgstore.sniper.model.entity.MerkleSnipe;
+import com.easy1staking.jpgstore.sniper.model.entity.SnipeId;
 import com.easy1staking.jpgstore.sniper.model.onchain.MerkleMintRedeemerParser;
 import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatumParser;
 import com.easy1staking.jpgstore.sniper.repository.MerkleSnipeRepository;
@@ -19,6 +21,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Stream;
@@ -41,6 +44,8 @@ public class SnipeEventProcessor {
     private final SnipeDatumParser snipeDatumParser;
 
     private final MerkleMintRedeemerParser merkleMintRedeemerParser;
+
+    private final SnipeRegistry snipeRegistry;
 
     @EventListener
     public void processTransactionEvent(TransactionEvent transactionEvent) {
@@ -106,18 +111,40 @@ public class SnipeEventProcessor {
                     return localAcc;
                 }, (a, b) -> a || b);
 
-        // Traverse For listing
-        var policySnipes = utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
-                .stream()
-                .flatMap(Collection::stream)
-                .toList();
+        if (anySnipeListed) {
+            snipeRegistry.clearAll();
+        }
 
-        var merkleSnipes = utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
+        // Traverse For listing
+        utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
                 .stream()
                 .flatMap(Collection::stream)
-                .toList();
+                .forEach(utxoEntity -> {
+                    snipeDatumParser.parse(utxoEntity.getInlineDatum())
+                            .ifPresent(localDatum -> snipeRegistry.putPolicySnipe(localDatum.targetHash(), TransactionInput.builder()
+                                    .transactionId(utxoEntity.getTxHash())
+                                    .index(utxoEntity.getOutputIndex())
+                                    .build()));
+                });
+
+        utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
+                .stream()
+                .flatMap(Collection::stream)
+                .forEach(utxoEntity -> {
+                    merkleSnipeRepository.findById(SnipeId.builder()
+                                    .txHash(utxoEntity.getTxHash())
+                                    .outputIndex(utxoEntity.getOutputIndex())
+                                    .build())
+                            .ifPresent(merkleSnipe -> {
+                                var nfts = Arrays.asList(merkleSnipe.getNftList().split(","));
+                                nfts.forEach(nft -> snipeRegistry.putMerkleSnipe(nft, TransactionInput.builder()
+                                        .transactionId(utxoEntity.getTxHash())
+                                        .index(utxoEntity.getOutputIndex())
+                                        .build()));
+                            });
+
+                });
 
     }
-
 
 }
