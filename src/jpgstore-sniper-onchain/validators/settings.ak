@@ -19,15 +19,16 @@ validator settings(utxo_ref: OutputReference) {
       list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
 
     let nft_value = assets.from_asset(policy_id, settings_nft_name, 1)
+    trace @"nft_value": nft_value
 
     let only_mints_nft = self.mint == nft_value
 
     let output_valid = is_output_valid(self, policy_id, nft_value)
 
     and {
-      utxo_consumed,
-      only_mints_nft,
-      output_valid,
+      utxo_consumed?,
+      only_mints_nft?,
+      output_valid?,
     }
   }
 
@@ -112,9 +113,9 @@ fn is_output_valid(
   let has_admin_signature =
     list.has(self.extra_signatories, settings_datum.admin_pkh)
   and {
-    nft_sent_to_output,
-    has_admin_signature,
-    valid_output_settings,
+    nft_sent_to_output?,
+    has_admin_signature?,
+    valid_output_settings?,
   }
 }
 

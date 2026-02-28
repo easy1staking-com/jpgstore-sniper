@@ -1,6 +1,7 @@
 package com.easy1staking.jpgstore.sniper.contract;
 
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
+import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.easy1staking.jpgstore.sniper.aiken.model.AbstractContract;
 import com.easy1staking.jpgstore.sniper.aiken.service.PlutusService;
@@ -11,8 +12,8 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class MerkleTreeSnipeContract extends AbstractContract {
 
-    public MerkleTreeSnipeContract(PlutusService plutusService) {
-        super("snipe.merkle_snipe.mint", ListPlutusData.of(), plutusService, PlutusVersion.v3);
+    public MerkleTreeSnipeContract(PlutusService plutusService, SettingsContract settingsContract) {
+        super("snipe.merkle_snipe.mint", ListPlutusData.of(BytesPlutusData.of(settingsContract.getScriptHashBytes())), plutusService, PlutusVersion.v3);
     }
 
 }

@@ -112,39 +112,39 @@ public class SnipeEventProcessor {
                 }, (a, b) -> a || b);
 
         if (anySnipeListed) {
+            log.info("at least a snipe listed!");
             snipeRegistry.clearAll();
-        }
 
-        // Traverse For listing
-        utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
-                .stream()
-                .flatMap(Collection::stream)
-                .forEach(utxoEntity -> {
-                    snipeDatumParser.parse(utxoEntity.getInlineDatum())
-                            .ifPresent(localDatum -> snipeRegistry.putPolicySnipe(localDatum.targetHash(), TransactionInput.builder()
-                                    .transactionId(utxoEntity.getTxHash())
-                                    .index(utxoEntity.getOutputIndex())
-                                    .build()));
-                });
-
-        utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
-                .stream()
-                .flatMap(Collection::stream)
-                .forEach(utxoEntity -> {
-                    merkleSnipeRepository.findById(SnipeId.builder()
-                                    .txHash(utxoEntity.getTxHash())
-                                    .outputIndex(utxoEntity.getOutputIndex())
-                                    .build())
-                            .ifPresent(merkleSnipe -> {
-                                var nfts = Arrays.asList(merkleSnipe.getNftList().split(","));
-                                nfts.forEach(nft -> snipeRegistry.putMerkleSnipe(nft, TransactionInput.builder()
+            // Traverse For listing
+            utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .forEach(utxoEntity -> {
+                        snipeDatumParser.parse(utxoEntity.getInlineDatum())
+                                .ifPresent(localDatum -> snipeRegistry.putPolicySnipe(localDatum.targetHash(), TransactionInput.builder()
                                         .transactionId(utxoEntity.getTxHash())
                                         .index(utxoEntity.getOutputIndex())
                                         .build()));
-                            });
+                    });
 
-                });
+            utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .forEach(utxoEntity -> {
+                        merkleSnipeRepository.findById(SnipeId.builder()
+                                        .txHash(utxoEntity.getTxHash())
+                                        .outputIndex(utxoEntity.getOutputIndex())
+                                        .build())
+                                .ifPresent(merkleSnipe -> {
+                                    var nfts = Arrays.asList(merkleSnipe.getNftList().split(","));
+                                    nfts.forEach(nft -> snipeRegistry.putMerkleSnipe(nft, TransactionInput.builder()
+                                            .transactionId(utxoEntity.getTxHash())
+                                            .index(utxoEntity.getOutputIndex())
+                                            .build()));
+                                });
 
+                    });
+        }
     }
 
 }
