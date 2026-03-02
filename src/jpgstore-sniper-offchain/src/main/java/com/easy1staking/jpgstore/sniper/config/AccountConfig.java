@@ -13,7 +13,7 @@ public class AccountConfig {
 
     @Bean
     public Account account(@Value("${wallet.mnemonic}") String mnemonic) {
-        var account = Account.createFromMnemonic(Networks.mainnet(), mnemonic, 2, 0);
+        var account = Account.createFromMnemonic(Networks.mainnet(), mnemonic, 0, 0);
         log.info("INIT - address: {}", account.baseAddress());
         return account;
     }

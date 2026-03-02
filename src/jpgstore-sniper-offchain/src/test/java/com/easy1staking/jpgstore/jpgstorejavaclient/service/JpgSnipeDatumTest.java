@@ -241,7 +241,7 @@ public class JpgSnipeDatumTest {
 
         hybridUtxoSupplier.add(snipeUtxo);
 
-        var assetType = AssetType.fromUnit("a5bb0e5bb275a573d744a021f9b3bff73595468e002755b447e01559484f534b594361736847726162303030303238333536");
+        var assetType = AssetType.fromUnit("a5bb0e5bb275a573d744a021f9b3bff73595468e002755b447e01559484f534b594361736847726162303030333534363633");
 
         var addressUtxo = addressService
                 .getAddressUtxosGivenAsset(JPG_CONTRACT_ADDRESS_V2, assetType.toUnit(), 1, 1, OrderEnum.asc)

@@ -55,7 +55,7 @@ public class PreviewMerkleSnipeDatumTest extends AbstractTest {
 
         var plutusService = new PlutusService(OBJECT_MAPPER, new ClassPathResource("./plutus.json"));
 
-        var settingsContract = new SettingsContract(plutusService);
+        var settingsContract = new SettingsContract(plutusService, "3f59fd0b05d4755c72879372a903d61fb67f30be5d925267cc95a06d229f9971", 1);
         log.info("settingsContract: {}", settingsContract.getScriptHash());
 
         var sniperAccount = Account.createFromMnemonic(NETWORK, MNEMONIC, 0, 0);

@@ -270,6 +270,12 @@ public class ListingDatumParser {
      * @return ListingDetails if parsing succeeds
      */
     public Optional<ListingDetails> parsePaymentDetailsV2(String metadataCborHex, String datumHash) {
+        return resolveListingDatum(metadataCborHex, datumHash)
+                .flatMap(this::deserializeDatum)
+                .flatMap(this::extractListingDetailsV2);
+    }
+
+    public Optional<PlutusData> resolveListingDatum(String metadataCborHex, String datumHash) {
 
         var metadataMap = CBORMetadata.deserialize(HexUtil.decodeHexString(metadataCborHex));
 
@@ -283,10 +289,7 @@ public class ListingDatumParser {
                 .skip(1)
                 .collect(Collectors.joining());
 
-        return extractPlutusData(listingMetadata, datumHash)
-                .flatMap(this::deserializeDatum)
-                .flatMap(this::extractListingDetailsV2);
-
+        return extractPlutusData(listingMetadata, datumHash);
     }
 
 }

@@ -9,21 +9,22 @@ import com.bloxbean.cardano.client.util.HexUtil;
 import com.easy1staking.jpgstore.sniper.aiken.model.AbstractContract;
 import com.easy1staking.jpgstore.sniper.aiken.service.PlutusService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
 public class SettingsContract extends AbstractContract {
 
-    private static final ListPlutusData PARAMETERS = ListPlutusData.of(
-            ConstrPlutusData.of(0,
-                    BytesPlutusData.of(HexUtil.decodeHexString("3f59fd0b05d4755c72879372a903d61fb67f30be5d925267cc95a06d229f9971")),
-                    BigIntPlutusData.of(1L)
-            )
-    );
-
-    public SettingsContract(PlutusService plutusService) {
-        super("settings.settings.mint", PARAMETERS, plutusService, PlutusVersion.v3);
+    public SettingsContract(PlutusService plutusService,
+                            @Value("${bootstrap.settings.utxo.txHash}") String txHash,
+                            @Value("${bootstrap.settings.utxo.index}") int outputIndex) {
+        super("settings.settings.mint", ListPlutusData.of(
+                ConstrPlutusData.of(0,
+                        BytesPlutusData.of(HexUtil.decodeHexString(txHash)),
+                        BigIntPlutusData.of(outputIndex)
+                )
+        ), plutusService, PlutusVersion.v3);
     }
 
 }

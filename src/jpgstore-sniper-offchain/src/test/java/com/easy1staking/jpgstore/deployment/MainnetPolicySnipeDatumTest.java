@@ -33,9 +33,9 @@ import org.springframework.core.io.ClassPathResource;
 import java.math.BigInteger;
 
 @Slf4j
-public class PreviewPolicySnipeDatumTest extends AbstractTest {
+public class MainnetPolicySnipeDatumTest extends AbstractTest {
 
-    private static final Network NETWORK = Networks.preview();
+    private static final Network NETWORK = Networks.mainnet();
 
     @Test
     public void mintSnipeTest() throws Exception {
@@ -48,7 +48,7 @@ public class PreviewPolicySnipeDatumTest extends AbstractTest {
 
         var plutusService = new PlutusService(OBJECT_MAPPER, new ClassPathResource("./plutus.json"));
 
-        var settingsContract = new SettingsContract(plutusService, "3f59fd0b05d4755c72879372a903d61fb67f30be5d925267cc95a06d229f9971", 1);
+        var settingsContract = new SettingsContract(plutusService, "d444055834b0697b4db6c3385c4293d2a265b4a7bd549f14af6ee561d98a7976", 0);
         log.info("settingsContract: {}", settingsContract.getScriptHash());
 
         var sniperAccount = Account.createFromMnemonic(NETWORK, MNEMONIC, 0, 0);
@@ -79,13 +79,13 @@ public class PreviewPolicySnipeDatumTest extends AbstractTest {
                 PlutusVersion.v3
         );
 
-        // FIXME: derive address and query via blockfrost
-        var settingsUtxoOpt = bfBackendService.getUtxoService().getTxOutput("df691279a66621b267792e1f6e5d853b2a969236409ba16f526ba16e95f947ff", 0);
+        var settingsAddress = AddressProvider.getEntAddress(settingsContract.getPlutusScript(), NETWORK);
+        var settingsUtxoOpt = bfBackendService.getUtxoService().getUtxos(settingsAddress.getAddress(), 100, 1);
         if (!settingsUtxoOpt.isSuccessful()) {
             Assertions.fail();
         }
 
-        var settingsUtxo = settingsUtxoOpt.getValue();
+        var settingsUtxo = settingsUtxoOpt.getValue().getFirst();
         log.info("settingsUtxo: {}", settingsUtxo);
 
         var settingsOpt = settingsParser.parse(settingsUtxo.getInlineDatum());
@@ -104,11 +104,11 @@ public class PreviewPolicySnipeDatumTest extends AbstractTest {
                 .ownerPkh(HexUtil.encodeHexString(customerAccount.getBaseAddress().getPaymentCredentialHash().get()))
                 .nftDestination(snipeCustomerAddress)
                 .targetHash(collectionPolicyId)
-                .maxPrice(10_000_000L)
+                .maxPrice(8_000_000L)
                 .protocolFee(1_000_000L)
                 .build();
 
-        var lockedAmount = Value.fromCoin(BigInteger.valueOf(13_000_000L))
+        var lockedAmount = Value.fromCoin(BigInteger.valueOf(11_000_000L))
                 .add(Value.from(policySnipeContract.getPolicyId(), "0x", BigInteger.ONE));
 
         var customerUtxosOpt = bfBackendService.getUtxoService().getUtxos(customerAccount.baseAddress(), 100, 1);

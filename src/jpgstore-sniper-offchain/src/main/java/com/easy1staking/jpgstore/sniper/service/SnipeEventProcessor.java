@@ -1,19 +1,21 @@
 package com.easy1staking.jpgstore.sniper.service;
 
-import com.bloxbean.cardano.client.address.Address;
+import com.bloxbean.cardano.client.address.AddressType;
+import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.bloxbean.cardano.yaci.core.model.RedeemerTag;
-import com.bloxbean.cardano.yaci.core.model.TransactionInput;
 import com.bloxbean.cardano.yaci.store.events.TransactionEvent;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
+import com.easy1staking.cardano.util.AddressUtil;
 import com.easy1staking.jpgstore.sniper.contract.MerkleTreeSnipeContract;
 import com.easy1staking.jpgstore.sniper.contract.PolicyIdSnipeContract;
-import com.easy1staking.jpgstore.sniper.contract.SettingsContract;
 import com.easy1staking.jpgstore.sniper.model.entity.MerkleSnipe;
 import com.easy1staking.jpgstore.sniper.model.entity.SnipeId;
 import com.easy1staking.jpgstore.sniper.model.onchain.MerkleMintRedeemerParser;
+import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatum;
 import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatumParser;
 import com.easy1staking.jpgstore.sniper.repository.MerkleSnipeRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.merkle.MerkleTree;
@@ -31,8 +33,6 @@ import java.util.stream.Stream;
 @Slf4j
 public class SnipeEventProcessor {
 
-    private final SettingsContract settingsContract;
-
     private final PolicyIdSnipeContract policyIdSnipeContract;
 
     private final MerkleTreeSnipeContract merkleTreeSnipeContract;
@@ -47,8 +47,16 @@ public class SnipeEventProcessor {
 
     private final SnipeRegistry snipeRegistry;
 
+    @PostConstruct
+    public void init() {
+        reloadSnipes();
+    }
+
+
     @EventListener
     public void processTransactionEvent(TransactionEvent transactionEvent) {
+
+        var supportedAddressTypes = List.of(AddressType.Base, AddressType.Enterprise);
 
         var slot = transactionEvent.getMetadata().getSlot();
 
@@ -62,7 +70,15 @@ public class SnipeEventProcessor {
                     for (int i = 0; i < transaction.getBody().getOutputs().size(); i++) {
                         var output = transaction.getBody().getOutputs().get(i);
 
-                        var paymentPkhOpt = new Address(output.getAddress()).getPaymentCredentialHash().map(HexUtil::encodeHexString);
+                        var addressOpt = AddressUtil.extractShelleyAddress(output.getAddress());
+
+                        if (addressOpt.isEmpty() || !supportedAddressTypes.contains(addressOpt.get().getAddressType())) {
+                            continue;
+                        }
+
+                        var address = addressOpt.get();
+
+                        var paymentPkhOpt = address.getPaymentCredentialHash().map(HexUtil::encodeHexString);
                         final var j = i;
                         paymentPkhOpt.filter(pkh -> pkh.equals(merkleTreeSnipeContract.getScriptHash()))
                                 .ifPresent(pkh -> {
@@ -112,39 +128,48 @@ public class SnipeEventProcessor {
                 }, (a, b) -> a || b);
 
         if (anySnipeListed) {
-            log.info("at least a snipe listed!");
-            snipeRegistry.clearAll();
+            reloadSnipes();
+        }
+    }
 
-            // Traverse For listing
-            utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
-                    .stream()
-                    .flatMap(Collection::stream)
-                    .forEach(utxoEntity -> {
-                        snipeDatumParser.parse(utxoEntity.getInlineDatum())
-                                .ifPresent(localDatum -> snipeRegistry.putPolicySnipe(localDatum.targetHash(), TransactionInput.builder()
+    public void reloadSnipes() {
+        log.info("Reloading snipes");
+        snipeRegistry.clearAll();
+
+        // Traverse For listing
+        utxoRepository.findUnspentByOwnerPaymentCredential(policyIdSnipeContract.getScriptHash(), Pageable.unpaged())
+                .stream()
+                .flatMap(Collection::stream)
+                .forEach(utxoEntity -> snipeDatumParser.parse(utxoEntity.getInlineDatum())
+                        .map(SnipeDatum::targetHash)
+                        .ifPresent(policyId -> snipeRegistry.putPolicySnipe(policyId, TransactionInput.builder()
+                                .transactionId(utxoEntity.getTxHash())
+                                .index(utxoEntity.getOutputIndex())
+                                .build())
+                        ));
+
+
+        utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
+                .stream()
+                .flatMap(Collection::stream)
+                .forEach(utxoEntity -> {
+                    merkleSnipeRepository.findById(SnipeId.builder()
+                                    .txHash(utxoEntity.getTxHash())
+                                    .outputIndex(utxoEntity.getOutputIndex())
+                                    .build())
+                            .ifPresent(merkleSnipe -> {
+                                var nfts = Arrays.asList(merkleSnipe.getNftList().split(","));
+                                nfts.forEach(nft -> snipeRegistry.putMerkleSnipe(nft, TransactionInput.builder()
                                         .transactionId(utxoEntity.getTxHash())
                                         .index(utxoEntity.getOutputIndex())
                                         .build()));
-                    });
+                            });
 
-            utxoRepository.findUnspentByOwnerPaymentCredential(merkleTreeSnipeContract.getScriptHash(), Pageable.unpaged())
-                    .stream()
-                    .flatMap(Collection::stream)
-                    .forEach(utxoEntity -> {
-                        merkleSnipeRepository.findById(SnipeId.builder()
-                                        .txHash(utxoEntity.getTxHash())
-                                        .outputIndex(utxoEntity.getOutputIndex())
-                                        .build())
-                                .ifPresent(merkleSnipe -> {
-                                    var nfts = Arrays.asList(merkleSnipe.getNftList().split(","));
-                                    nfts.forEach(nft -> snipeRegistry.putMerkleSnipe(nft, TransactionInput.builder()
-                                            .transactionId(utxoEntity.getTxHash())
-                                            .index(utxoEntity.getOutputIndex())
-                                            .build()));
-                                });
+                });
 
-                    });
-        }
+        log.info("Num policy snipes: {}", snipeRegistry.getPolicySize());
+        log.info("Num merkle snipes: {}", snipeRegistry.getMerkleSize());
+
     }
 
 }

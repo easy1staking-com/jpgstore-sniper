@@ -32,10 +32,14 @@ public class HybridUtxoSupplier extends DefaultUtxoSupplier {
     @Override
     public Optional<Utxo> getTxOutput(String txHash, int outputIndex) {
         log.info("Get tx output: {}:{}", txHash, outputIndex);
-        return mempoolUtxo.stream()
+        var result = mempoolUtxo.stream()
                 .filter(utxo -> utxo.getTxHash().equals(txHash) && utxo.getOutputIndex() == outputIndex)
                 .findFirst()
                 .or(() -> super.getTxOutput(txHash, outputIndex));
+        if (result.isEmpty()) {
+            log.warn("could not resolve: {}:{}", txHash, outputIndex);
+        }
+        return result;
     }
 
     public void add(Utxo utxo) {

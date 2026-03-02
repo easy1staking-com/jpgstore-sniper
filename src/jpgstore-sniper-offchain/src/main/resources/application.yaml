@@ -19,7 +19,13 @@ management:
       exposure:
         include: health,prometheus
 
-network: preview
+network: mainnet
+
+bootstrap:
+  settings:
+    utxo:
+      txHash: d444055834b0697b4db6c3385c4293d2a265b4a7bd549f14af6ee561d98a7976
+      index: 0
 
 blockfrost:
   url: https://cardano-mainnet.blockfrost.io/api/v0/
@@ -31,8 +37,8 @@ store:
     port: 0
     protocol-magic: 764824073
     # Start from the block that minted the ref input for the contract
-    sync-start-slot: 179884882
-    sync-start-blockhash: 91171507153b565e83d817998fa3cfd18d4a6bcafee2215e19778543177173f0
+    sync-start-blockhash: b33d45cf1537651fe8789a92514654636dd0beb5eaf5e5ac5c03a419f92d1ab2
+    sync-start-slot: 180746279
   utxo:
     pruning-enabled: true
     pruning:
@@ -55,6 +61,12 @@ spring:
       on-profile: preview
 
 network: preview
+
+bootstrap:
+  settings:
+    utxo:
+      txHash: 3f59fd0b05d4755c72879372a903d61fb67f30be5d925267cc95a06d229f9971
+      index: 1
 
 blockfrost:
   url: https://cardano-preview.blockfrost.io/api/v0/
