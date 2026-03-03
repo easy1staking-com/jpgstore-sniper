@@ -1,17 +1,10 @@
 package com.easy1staking.jpgstore.jpgstorejavaclient;
 
+import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.account.Account;
-import com.bloxbean.cardano.client.address.AddressProvider;
-import com.bloxbean.cardano.client.api.TransactionProcessor;
-import com.bloxbean.cardano.client.api.exception.ApiException;
+import com.bloxbean.cardano.client.api.TransactionEvaluator;
 import com.bloxbean.cardano.client.api.model.Amount;
-import com.bloxbean.cardano.client.api.model.EvaluationResult;
-import com.bloxbean.cardano.client.api.model.Result;
-import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
-import com.bloxbean.cardano.client.backend.api.DefaultProtocolParamsSupplier;
-import com.bloxbean.cardano.client.backend.api.DefaultScriptSupplier;
-import com.bloxbean.cardano.client.backend.api.DefaultUtxoSupplier;
 import com.bloxbean.cardano.client.backend.blockfrost.common.Constants;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
 import com.bloxbean.cardano.client.common.model.Networks;
@@ -22,9 +15,9 @@ import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
-import com.bloxbean.cardano.client.plutus.spec.PlutusScript;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.supplier.ogmios.OgmiosTransactionEvaluator;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.easy1staking.cardano.model.AssetType;
@@ -42,13 +35,9 @@ import io.blockfrost.sdk.impl.TransactionServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import scalus.bloxbean.ScalusTransactionEvaluator;
-import scalus.bloxbean.ScriptSupplier;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
@@ -77,7 +66,7 @@ public class PurchaseNftV2Test {
         var jpgStoreContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode("59068601000032323232323232323232322223232533300a323232323232323232323232323232323232533301c3370e900000089919191919191919191919192999814002099b8848000ccc0040140180204c8c8c8c8c8c8c8c8c8c8c8c8c94ccc0e0c0ec0184c8c8c94ccc0ecc0f80084c8c8c8c94ccc0f14ccc0f14ccc0f0028402452808008a50100214a066e24040008cdc7802a44100375a60760046eb8c0e400458c0f0004dd5981c0011bae30360011630390053375e00c98150d8799fd87a9f581c84cc25ea4c29951d40b443b95bbc5676bc425470f96376d1984af9abffd8799fd8799fd87a9f581c2c967f4bd28944b06462e13c5e3f5d5fa6e03f8567569438cd833e6dffffffff003375e002024606c002606c0046eacc0d0004c0d0008c0c8004c0a8010cdc199b83337040029032240c4903219980180080426103d8798000302f006302d005222323232323232323253330323375e0020122646464646464a66607066ebc00c02c4c94ccc0f0c0fc0284c8c8c94ccc0fcc1080084c8c94ccc0f8cdc7802a45001533303e533303e3371200e002266e21200000714a026466e000200054ccc10402c5200013301801300b1616375a607e0046eb8c0f400458c100004dd5981e0011bae303a00116303d00916375a60780026078004607400260640046072016606e0142c606c002606c0046eacc0d0004c0d0008c0c8004c0a8008c0c4010c0bc00cc004004888c8c8c8c8c8c8c8c94ccc0c0cdd7800a6103d8798000132323232323253330363375e006016264a666074607a0142646464a66607a608000426464a66607866e3c015221001533303c533303c3371200e002266e21200000714a026466e000200054ccc0fc02c52000133301701701300b1616375a607a0046eb8c0ec00458c0f8004dd5981d0011bae303800116303b00916375a6074002607400460700026060004606e014606a0122c606800260680046eacc0c8004c0c8008c0c0004c0a0008c0bc00cc0b4008ccc8c0040048894ccc0a800852809919299981498018010a511333005005001003302e003375c605800497ae1011e581c15df89fe62968415bac4de9d8576da39c34db4717f46332572aca3eb00811e581c53391ebae9fa352a1108e2769df9baf0d3efcab0f49404bd6ac56bd400119805806800999919191800800911299981419b89480500044c8ccc010010004cdc080124028646464646464646464606e002606c002606a00260680026066002606400260620026060002605e002605c0042660080040026002002444a66604c66e1c0052000100213233300400400133702004900118160010090031bac3027001301f01832323374a9002198131ba90014bd701b94001376600260480026038a66603c66e1d2002301d011101116375a604400260340282660040086eb8cc060c06804d2002301a0133001001222533301f00214a026464a66603c66e3c00800c528899980280280080198118019bae30210023758603a002603a002603800260360026034002603200260300046eb0c058004c058004c054004c03000cc048004c048008c040004c02000c52616320053323232232533300e3370e9000000899191919299980a980c00109924c6600e0064649319299980a19b87480000044c8c8c8c94ccc06cc0780084c9263253330193370e9000000899191919299981018118010991924c64a66603e66e1d20000011323253330243027002132498c94ccc088cdc3a400000226464a66604e605400426493180d8008b181400098100010a99981119b87480080044c8c8c8c8c8c94ccc0acc0b800852616375a605800260580046eb4c0a8004c0a8008dd6981400098100010b18100008b1812800980e8018a99980f99b874800800454ccc088c07400c5261616301d00230140031630210013021002301f001301700416301700316375a60380026038004603400260240042c60240022c6eb8c058004c058008dd6180a00098060010b1806000980080091129998080010a4c264666008008602800600460026024004464a66601666e1d20000011323253330103013002149858dd7180880098048010a99980599b87480080044c8c94ccc040c04c00852616375c602200260120042c60120020086400664a66601266e1d200000113232533300e3011002149858dd6980780098038018a99980499b874800800454ccc030c01c00c5261616300700233001001480008888cccc01ccdc38008018061199980280299b8000448008c0380040080088c014dd5000918019baa0015734aae7555cf2ab9f5740ae855d101", PlutusVersion.v2);
         log.info("jpgStoreContract: {}", jpgStoreContract.getPolicyId());
 
-        var account = Account.createFromMnemonic(Networks.mainnet(), MNEMONIC, 0, 0);
+        var account = new Account(Networks.mainnet(), MNEMONIC);
 
         log.info("BLOCKFROST_KEY: {}", BLOCKFROST_KEY);
 
@@ -135,7 +124,7 @@ public class PurchaseNftV2Test {
         var datumHash = listingDatum.getDatumHash();
         log.info("datumHash: {}", datumHash);
 
-        var bar = listingDetails.payees().stream().map(PaymentDetails::amount).reduce(Value::add).orElse(Value.builder().build()).getCoin();
+        var bar = listingDetails.payees().stream().map(PaymentDetails::amount).reduce(Value::plus).orElse(Value.builder().build()).getCoin();
 //        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(2L, 98L)).floor();
 //        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(25L, 975L)).floor();
         var jpgStoreFees1 = Rational.from(bar).multiply(Rational.from(20L, 980L)).floor();
@@ -166,6 +155,8 @@ public class PurchaseNftV2Test {
         var transaction = quickTxBuilder.compose(tx)
                 .feePayer(account.baseAddress())
                 .withSigner(SignerProviders.signerFrom(account))
+//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+//                .withTxEvaluator(ogmiosTE())
                 .preBalanceTx((txBuilderContext, transaction1) -> {
                     try {
                         log.info("pre tx: {}", OBJECT_MAPPER.writeValueAsString(transaction1));
@@ -173,240 +164,22 @@ public class PurchaseNftV2Test {
                         throw new RuntimeException(e);
                     }
                 })
-                .buildAndSign();
+                .completeAndWait();
 
         log.info("tx: {}", OBJECT_MAPPER.writeValueAsString(transaction));
 
-        var foo = bfBackendService.getTransactionService().submitTransaction(transaction.serialize());
+//        var foo = bfBackendService.getTransactionService().submitTransaction(transaction.serialize());
 
-        if (foo.isSuccessful()) {
-            log.info("tx hash: {}", foo.getValue());
-        } else {
-            log.warn("error: {}", foo.getResponse());
-        }
+//        if (foo.isSuccessful()) {
+//            log.info("tx hash: {}", foo.getValue());
+//        } else {
+//            log.warn("error: {}", foo.getResponse());
+//        }
 
     }
 
-    @Test
-    public void purchaseV2Test2() throws Exception {
-
-        var account = Account.createFromMnemonic(Networks.mainnet(), MNEMONIC, 2, 0);
-
-        log.info("BLOCKFROST_KEY: {}", BLOCKFROST_KEY);
-
-        var assetType = AssetType.fromUnit("4523c5e21d409b81c95b45b0aea275b8ea1406e6cafea5583b9f8a5f000de14042756436303233");
-
-        var addressUtxo = addressService
-                .getAddressUtxosGivenAsset(JPG_CONTRACT_ADDRESS_V2, assetType.toUnit(), 1, 1, OrderEnum.asc)
-                .getFirst();
-        log.info("addressUtxo: {}", addressUtxo);
-
-        var listingDatumOpt = listingDatumService.findPlutusData(addressUtxo.getTxHash(), addressUtxo.getDataHash());
-        if (listingDatumOpt.isEmpty()) {
-            Assertions.fail();
-        }
-
-        var listingDatum = listingDatumOpt.get();
-        log.info("listingDatum: {}", listingDatum.serializeToHex());
-
-        var listingDetailsOpt = listingDatumParser.parseDatumV2(listingDatum.serializeToHex());
-
-        if (listingDetailsOpt.isEmpty()) {
-            Assertions.fail();
-        }
-
-        var listingDetails = listingDetailsOpt.get();
-        log.info("listingDetails: {}", listingDetails);
-
-        var utxo = bfBackendService.getUtxoService().getTxOutput(addressUtxo.getTxHash(), addressUtxo.getOutputIndex()).getValue();
-
-        var walletUtxos = bfBackendService.getUtxoService().getUtxos(account.baseAddress(), 100, 1).getValue();
-
-        //        jpg fees 7.98
-//        difference = amount × (2/98)
-
-        var bar = listingDetails.payees().stream().map(PaymentDetails::amount).reduce(Value::add).orElse(Value.builder().build()).getCoin();
-        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(2L, 98L)).floor();
-        log.info("jpgStoreFees: {}", jpgStoreFees);
-
-        final var tx = new ScriptTx()
-                .collectFrom(walletUtxos)
-                .collectFrom(utxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
-
-                // fees
-                .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(jpgStoreFees), BytesPlutusData.of(HexUtil.decodeHexString("53cc96ff7c850f6b2a44c59ad463956251b684fc913cf7829c1e928dc822ab56")));
-
-        // payees
-        listingDetails.payees().forEach(payee -> tx.payToAddress(payee.beneficiary(), ValueUtil.toAmountList(payee.amount())));
-
-        tx.readFrom("1693c508b6132e89b932754d657d28b24068ff5ff1715fec36c010d4d6470b3d", 0)
-                .withChangeAddress(account.baseAddress());
-
-        QuickTxBuilder quickTxBuilder = new QuickTxBuilder(bfBackendService);
-
-        var transaction = quickTxBuilder.compose(tx)
-                .feePayer(account.baseAddress())
-                .withSigner(SignerProviders.signerFrom(account))
-                .preBalanceTx((txBuilderContext, transaction1) -> {
-                    try {
-                        log.info("pre tx: {}", OBJECT_MAPPER.writeValueAsString(transaction1));
-                    } catch (JsonProcessingException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .build();
-
-        log.info("tx: {}", OBJECT_MAPPER.writeValueAsString(transaction));
-
-    }
-
-    @Test
-    public void purchaseV2Test_ExtraContract() throws Exception {
-
-        var alwaysTrueContract = "585c01010029800aba2aba1aab9eaab9dab9a4888896600264653001300600198031803800cc0180092225980099b8748008c01cdd500144c8cc892898050009805180580098041baa0028b200c180300098019baa0068a4d13656400401";
-
-        var alwaysTrueScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(alwaysTrueContract, PlutusVersion.v3);
-
-        var alwaysTrueAddress = AddressProvider.getEntAddress(alwaysTrueScript, Networks.mainnet());
-
-        var account = Account.createFromMnemonic(Networks.mainnet(), MNEMONIC, 2, 0);
-
-        log.info("BLOCKFROST_KEY: {}", BLOCKFROST_KEY);
-
-        var assetType = AssetType.fromUnit("4523c5e21d409b81c95b45b0aea275b8ea1406e6cafea5583b9f8a5f000de14042756436303233");
-
-        var addressUtxo = addressService
-                .getAddressUtxosGivenAsset(JPG_CONTRACT_ADDRESS_V2, assetType.toUnit(), 1, 1, OrderEnum.asc)
-                .getFirst();
-        log.info("addressUtxo: {}", addressUtxo);
-
-        var alwaysTrueFakeUtxo = Utxo.builder()
-                .txHash(addressUtxo.getTxHash())
-                .outputIndex(10)
-                .address(alwaysTrueAddress.getAddress())
-                .amount(List.of(Amount.ada(10)))
-                .build();
-
-
-        var listingDatumOpt = listingDatumService.findPlutusData(addressUtxo.getTxHash(), addressUtxo.getDataHash());
-        if (listingDatumOpt.isEmpty()) {
-            Assertions.fail();
-        }
-
-        var listingDatum = listingDatumOpt.get();
-        log.info("listingDatum: {}", listingDatum.serializeToHex());
-
-        var listingDetailsOpt = listingDatumParser.parseDatumV2(listingDatum.serializeToHex());
-
-        if (listingDetailsOpt.isEmpty()) {
-            Assertions.fail();
-        }
-
-        var listingDetails = listingDetailsOpt.get();
-        log.info("listingDetails: {}", listingDetails);
-
-        var utxo = bfBackendService.getUtxoService().getTxOutput(addressUtxo.getTxHash(), addressUtxo.getOutputIndex()).getValue();
-
-        var walletUtxos = bfBackendService.getUtxoService().getUtxos(account.baseAddress(), 100, 1).getValue();
-
-        //        jpg fees 7.98
-//        difference = amount × (2/98)
-
-        var bar = listingDetails.payees().stream().map(PaymentDetails::amount).reduce(Value::add).orElse(Value.builder().build()).getCoin();
-        var jpgStoreFees = Rational.from(bar).multiply(Rational.from(2L, 98L)).floor();
-        log.info("jpgStoreFees: {}", jpgStoreFees);
-
-        final var tx = new ScriptTx()
-                .collectFrom(walletUtxos)
-                .collectFrom(alwaysTrueFakeUtxo)
-                .collectFrom(utxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
-
-                // fees
-                .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(jpgStoreFees), BytesPlutusData.of(HexUtil.decodeHexString("53cc96ff7c850f6b2a44c59ad463956251b684fc913cf7829c1e928dc822ab56")))
-                .attachSpendingValidator(alwaysTrueScript);
-
-        // payees
-        listingDetails.payees().forEach(payee -> tx.payToAddress(payee.beneficiary(), ValueUtil.toAmountList(payee.amount())));
-
-        tx.readFrom("1693c508b6132e89b932754d657d28b24068ff5ff1715fec36c010d4d6470b3d", 0)
-                .withChangeAddress(account.baseAddress());
-
-
-        var utxoSupplier = new DefaultUtxoSupplier(bfBackendService.getUtxoService()) {
-            @Override
-            public Optional<Utxo> getTxOutput(String txHash, int outputIndex) {
-                if (alwaysTrueFakeUtxo.getTxHash().equals(txHash) && alwaysTrueFakeUtxo.equals(outputIndex)) {
-                    return Optional.of(alwaysTrueFakeUtxo);
-                }
-                return super.getTxOutput(txHash, outputIndex);
-            }
-        };
-
-        var scriptSupplier = new DefaultScriptSupplier(bfBackendService.getScriptService()) {
-            @Override
-            public Optional<PlutusScript> getScript(String scriptHash) {
-                try {
-                    if (alwaysTrueScript.getPolicyId().equals(scriptHash)) {
-                        return Optional.of(alwaysTrueScript);
-                    }
-                } catch (Exception e) {
-                    // do nothing
-                }
-                return super.getScript(scriptHash);
-            }
-        };
-
-        var scalusScriptSupplier = new ScriptSupplier() {
-            @Override
-            public PlutusScript getScript(String scriptHash) {
-                try {
-                    if (alwaysTrueScript.getPolicyId().equals(scriptHash)) {
-                        return alwaysTrueScript;
-                    }
-                } catch (Exception e) {
-                    // do nothing
-                }
-                return scriptSupplier.getScript(scriptHash).orElse(null);
-            }
-        };
-
-        var transactionEvaluator = new ScalusTransactionEvaluator(bfBackendService.getEpochService().getProtocolParameters().getValue(),
-                utxoSupplier,
-                scalusScriptSupplier);
-
-        var transactionProcessor = new TransactionProcessor() {
-
-            @Override
-            public Result<List<EvaluationResult>> evaluateTx(byte[] cbor, Set<Utxo> inputUtxos) throws ApiException {
-                return transactionEvaluator.evaluateTx(cbor, inputUtxos);
-            }
-
-            @Override
-            public Result<String> submitTransaction(byte[] cborData) throws ApiException {
-                return null;
-            }
-        };
-
-        QuickTxBuilder quickTxBuilder = new QuickTxBuilder(utxoSupplier,
-                new DefaultProtocolParamsSupplier(bfBackendService.getEpochService()),
-                scriptSupplier,
-                transactionProcessor);
-
-        var transaction = quickTxBuilder.compose(tx)
-                .feePayer(account.baseAddress())
-                .withSigner(SignerProviders.signerFrom(account))
-                .withTxEvaluator(transactionEvaluator)
-                .preBalanceTx((txBuilderContext, transaction1) -> {
-                    try {
-                        log.info("pre tx: {}", OBJECT_MAPPER.writeValueAsString(transaction1));
-                    } catch (JsonProcessingException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .build();
-
-        log.info("tx: {}", OBJECT_MAPPER.writeValueAsString(transaction));
-
+    public TransactionEvaluator ogmiosTE() {
+        return new OgmiosTransactionEvaluator("http://panic-station:31337");
     }
 
 }

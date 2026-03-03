@@ -123,7 +123,7 @@ public class PolicySnipeNftV2Test extends AbstractTest {
                 settings.stakeCredential(),
                 network);
 
-        var assetType = AssetType.fromUnit("a5bb0e5bb275a573d744a021f9b3bff73595468e002755b447e01559484f534b594361736847726162303030303836333830");
+        var assetType = AssetType.fromUnit("a5bb0e5bb275a573d744a021f9b3bff73595468e002755b447e01559484f534b594361736847726162303030313337383138");
 
         var addressUtxo = addressService
                 .getAddressUtxosGivenAsset(JPG_CONTRACT_ADDRESS_V2, assetType.toUnit(), 1, 1, OrderEnum.asc)

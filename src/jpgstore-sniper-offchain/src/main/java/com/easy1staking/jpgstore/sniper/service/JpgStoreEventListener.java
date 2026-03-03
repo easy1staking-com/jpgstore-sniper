@@ -10,6 +10,7 @@ import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
 import com.bloxbean.cardano.client.common.model.Network;
+import com.bloxbean.cardano.client.exception.CborSerializationException;
 import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
@@ -116,16 +117,6 @@ public class JpgStoreEventListener {
                             log.info("listingDatum hash: {}", listingDatum.getDatumHash());
 
 
-                            var listingDatum2Opt = listingDatumService.findPlutusData(transaction.getTxHash(), output.getDatumHash());
-                            if (listingDatum2Opt.isEmpty()) {
-                                return;
-                            }
-
-                            var listingDatum2 = listingDatum2Opt.get();
-                            log.info("listingDatum2: {}", listingDatum2.serializeToHex());
-                            log.info("listingDatum2 hash: {}", listingDatum2.getDatumHash());
-
-
                             var listingDetailsOpt = listingDatumParser.parsePaymentDetailsV2(metadataCbor, output.getDatumHash());
 
                             if (listingDetailsOpt.isEmpty()) {
@@ -160,14 +151,6 @@ public class JpgStoreEventListener {
                                             var jpgNftUtxo = UtxoUtil.toUtxo(output, transaction.getTxHash(), j);
                                             log.info("jpgNftUtxo: {}", jpgNftUtxo);
                                             hybridUtxoSupplier.add(jpgNftUtxo);
-
-                                            Utxo jpgNftUtxo2;
-                                            try {
-                                                jpgNftUtxo2 = bfBackendService.getUtxoService().getTxOutput(transaction.getTxHash(), j).getValue();
-                                                log.info("jpgNftUtxo2: {}", jpgNftUtxo2);
-                                            } catch (ApiException e) {
-                                                throw new RuntimeException(e);
-                                            }
 
                                             var snipeUtxoOpt = utxoRepository.findById(UtxoId.builder()
                                                     .txHash(snipe.getTransactionId())
@@ -224,6 +207,7 @@ public class JpgStoreEventListener {
                                             var settingsUtxoOpt = utxoRepository.findUnspentByOwnerPaymentCredential(settingsContract.getScriptHash(), Pageable.unpaged())
                                                     .stream()
                                                     .flatMap(Collection::stream)
+                                                    .map(UtxoUtil::toUtxo)
                                                     .findAny();
 
                                             if (settingsUtxoOpt.isEmpty()) {
@@ -253,12 +237,11 @@ public class JpgStoreEventListener {
                                                     // Collect SNIPE
                                                     .collectFrom(snipeUtxo, ConstrPlutusData.of(0))
                                                     // Collect NFT
-                                                    .collectFrom(jpgNftUtxo2, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum2)
+                                                    .collectFrom(jpgNftUtxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
                                                     // BURN Snipe NFT
                                                     .mintAsset(policyIdSnipeContract.getPlutusScript(), Asset.builder().value(BigInteger.ONE.negate()).build(), ConstrPlutusData.of(0))
                                                     // Pay JPG Store Fees
-                                                    .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(actualJpgStoreFees), txFeeDatum)
-                                                    .attachSpendingValidator(policyIdSnipeContract.getPlutusScript());
+                                                    .payToContract("addr1xxzvcf02fs5e282qk3pmjkau2emtcsj5wrukxak3np90n2evjel5h55fgjcxgchp830r7h2l5msrlpt8262r3nvr8eksg6pw3p", Amount.lovelace(actualJpgStoreFees), txFeeDatum);
 
                                             // JPG Payees
                                             listingDetails.payees()
@@ -272,15 +255,12 @@ public class JpgStoreEventListener {
                                                     payToContract(nftDestination.getAddress(), Amount.asset(assetType.toUnit(), BigInteger.ONE), snipeTag)
                                                     // Pay Sniper Protocol
                                                     .payToContract(treasuryAddress.getAddress(), Amount.ada(1L), snipeTag)
-                                                    .readFrom(TransactionInput.builder()
-                                                            .transactionId(settingsUtxo.getTxHash())
-                                                            .index(settingsUtxo.getOutputIndex())
-                                                            .build())
+                                                    .readFrom(settingsUtxo)
                                                     // JPG Contract
                                                     .readFrom("1693c508b6132e89b932754d657d28b24068ff5ff1715fec36c010d4d6470b3d", 0)
                                                     .withChangeAddress(account.baseAddress());
 
-                                            var snipeTransaction = new QuickTxBuilder(bfBackendService).compose(snipeTx)
+                                            var snipeTransaction = quickTxBuilder.compose(snipeTx)
                                                     .feePayer(account.baseAddress())
                                                     .mergeOutputs(false)
                                                     .withSigner(SignerProviders.signerFrom(account))
@@ -294,9 +274,12 @@ public class JpgStoreEventListener {
                                                     })
                                                     .buildAndSign();
 
-//                                            if (!snipeTransaction.isSuccessful()) {
-//                                                log.error("error: {}", snipeTransaction.getResponse());
-//                                            }
+                                            try {
+                                                bfBackendService.getTransactionService()
+                                                        .submitTransaction(snipeTransaction.serialize());
+                                            } catch (Exception e) {
+                                                log.warn("error", e);
+                                            }
 
                                             hybridUtxoSupplier.clear();
 

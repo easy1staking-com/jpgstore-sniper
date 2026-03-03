@@ -104,11 +104,11 @@ public class MainnetPolicySnipeDatumTest extends AbstractTest {
                 .ownerPkh(HexUtil.encodeHexString(customerAccount.getBaseAddress().getPaymentCredentialHash().get()))
                 .nftDestination(snipeCustomerAddress)
                 .targetHash(collectionPolicyId)
-                .maxPrice(8_000_000L)
+                .maxPrice(9_000_000L)
                 .protocolFee(1_000_000L)
                 .build();
 
-        var lockedAmount = Value.fromCoin(BigInteger.valueOf(11_000_000L))
+        var lockedAmount = Value.fromCoin(BigInteger.valueOf(12_000_000L))
                 .add(Value.from(policySnipeContract.getPolicyId(), "0x", BigInteger.ONE));
 
         var customerUtxosOpt = bfBackendService.getUtxoService().getUtxos(customerAccount.baseAddress(), 100, 1);
