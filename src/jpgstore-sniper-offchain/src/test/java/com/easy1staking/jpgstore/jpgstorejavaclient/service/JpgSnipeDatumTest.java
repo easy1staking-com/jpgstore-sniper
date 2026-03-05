@@ -31,7 +31,7 @@ import com.easy1staking.jpgstore.sniper.model.contract.v2.PaymentDetails;
 import com.easy1staking.jpgstore.sniper.model.onchain.Address;
 import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatum;
 import com.easy1staking.jpgstore.sniper.model.onchain.Settings;
-import com.easy1staking.jpgstore.sniper.service.HybridUtxoSupplier;
+import com.easy1staking.jpgstore.sniper.mempool.service.HybridUtxoSupplier;
 import com.easy1staking.jpgstore.sniper.service.ListingDatumParser;
 import com.easy1staking.jpgstore.sniper.service.ListingDatumService;
 import com.easy1staking.math.Rational;

@@ -2,7 +2,6 @@ package com.easy1staking.jpgstore.sniper.config;
 
 import com.bloxbean.cardano.client.account.Account;
 import com.bloxbean.cardano.client.address.Address;
-import com.bloxbean.cardano.client.api.UtxoSupplier;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
 import com.bloxbean.cardano.client.common.model.Network;
 import com.bloxbean.cardano.client.common.model.Networks;
@@ -12,7 +11,7 @@ import com.easy1staking.jpgstore.sniper.contract.MerkleTreeSnipeContract;
 import com.easy1staking.jpgstore.sniper.contract.PolicyIdSnipeContract;
 import com.easy1staking.jpgstore.sniper.contract.SettingsContract;
 import com.easy1staking.jpgstore.sniper.model.Constants;
-import com.easy1staking.jpgstore.sniper.service.HybridUtxoSupplier;
+import com.easy1staking.jpgstore.sniper.mempool.service.HybridUtxoSupplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,10 +36,7 @@ public class AppConfiguration {
         return actualNetwork;
     }
 
-    @Bean
-    public HybridUtxoSupplier hybridUtxoSupplier(BFBackendService bfBackendService) {
-        return new HybridUtxoSupplier(bfBackendService.getUtxoService());
-    }
+
 
     @Bean
     @Qualifier("pubKeyHashes")

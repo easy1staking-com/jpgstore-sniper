@@ -1,4 +1,4 @@
-package com.easy1staking.jpgstore.sniper.service;
+package com.easy1staking.jpgstore.sniper.mempool.service;
 
 import com.bloxbean.cardano.client.api.TransactionEvaluator;
 import com.bloxbean.cardano.client.api.TransactionProcessor;
@@ -9,7 +9,6 @@ import com.bloxbean.cardano.client.api.model.Utxo;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Set;
