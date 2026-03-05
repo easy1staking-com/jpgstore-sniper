@@ -68,7 +68,7 @@ export default function Header({ activeTab, onTabChange }: HeaderProps) {
         </div>
 
         {/* Wallet */}
-        <CardanoWallet />
+        <CardanoWallet isDark />
       </div>
     </header>
   );
