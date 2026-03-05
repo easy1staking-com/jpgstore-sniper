@@ -18,7 +18,7 @@ public class NftCollectionController {
 
     private final NftCollectionService nftCollectionService;
 
-    @GetMapping("/{targetHash}")
+    @GetMapping("/{policyId}")
     public ResponseEntity<NftCollection> getCollection(@PathVariable String policyId) {
         return nftCollectionService.getCollection(policyId)
                 .map(ResponseEntity::ok)
