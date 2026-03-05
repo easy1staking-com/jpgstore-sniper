@@ -173,132 +173,133 @@ public class JpgStoreEventListener {
                              ListingDetails listingDetails) {
         log.info("about to process snipe: {}", snipe);
         log.info("jpgNftUtxo: {}", jpgNftUtxo);
-
-        var snipeUtxoOpt = utxoRepository.findById(UtxoId.builder()
-                        .txHash(snipe.getTransactionId())
-                        .outputIndex(snipe.getIndex())
-                        .build())
-                .map(UtxoUtil::toUtxo);
-
-        if (snipeUtxoOpt.isEmpty()) {
-            log.warn("could not find jpgNftUtxo: {}", jpgNftUtxo);
-            return;
-        }
-
-        // Snipe UTXO
-        var snipeUtxo = snipeUtxoOpt.get();
-        log.info("snipeUtxo: {}", snipeUtxo);
-
-        var snipeDatumOpt = snipeDatumParser.parse(snipeUtxo.getInlineDatum());
-        if (snipeDatumOpt.isEmpty()) {
-            log.warn("could not parse jpgNftUtxo: {}", snipeUtxo);
-            return;
-        }
-
-        var snipeDatum = snipeDatumOpt.get();
-
-        var nftDestinationAddress = snipeDatum.nftDestination();
-
-        Address nftDestination;
-        if (nftDestinationAddress.stakeKeyHash() != null) {
-            nftDestination = AddressProvider.getBaseAddress(nftDestinationAddress.paymentKeyHash(), nftDestinationAddress.stakeKeyHash(), network);
-        } else {
-            nftDestination = AddressProvider.getEntAddress(nftDestinationAddress.paymentKeyHash(), network);
-        }
-
-        var totalAmount = listingDetails.totalAmount().getCoin();
-        var expectedJpgStoreNftFees = Rational.from(totalAmount).multiply(Rational.from(20L, 980L)).floor();
-        log.info("expectedJpgStoreNftFees: {}", expectedJpgStoreNftFees);
-
-        var actualJpgStoreFees = BigInteger.valueOf(1_000_000L).max(expectedJpgStoreNftFees);
-        log.info("actualJpgStoreFees: {}", actualJpgStoreFees);
-
-        var nftCost = totalAmount.add(actualJpgStoreFees);
-
-        if (snipeDatum.maxPrice() >= nftCost.longValue()) {
-            log.info("ENOUGH");
-        } else {
-            log.info("NFT PRICE TOO HIGH - max price: {} -> nft cost: {}", snipeDatum.maxPrice(), nftCost);
-            return;
-        }
-
-        var txFeeDatum = getJpgUtxoHash(jpgNftUtxo.getTxHash(), jpgNftUtxo.getOutputIndex());
-
-        var snipeTag = getUtxoHash(snipeUtxo.getTxHash(), snipeUtxo.getOutputIndex());
-        log.info("snipeTag: {}", snipeTag.serializeToHex());
-
-        var settingsUtxoOpt = utxoRepository.findUnspentByOwnerPaymentCredential(settingsContract.getScriptHash(), Pageable.unpaged())
-                .stream()
-                .flatMap(Collection::stream)
-                .map(UtxoUtil::toUtxo)
-                .findAny();
-
-        if (settingsUtxoOpt.isEmpty()) {
-            log.warn("could not find utxo by settings: {}", settingsContract.getScriptHash());
-            return;
-        }
-
-        var settingsUtxo = settingsUtxoOpt.get();
-
-        var settingsOpt = settingsParser.parse(settingsUtxo.getInlineDatum());
-        if (settingsOpt.isEmpty()) {
-            log.warn("could not parse utxo: {}", settingsUtxo);
-            return;
-        }
-
-        var settings = settingsOpt.get();
-        var protocolTreasuryAddress = settings.protocolTreasury();
-
-        var treasuryAddress = AddressProvider.getBaseAddress(protocolTreasuryAddress.paymentKeyHash(), protocolTreasuryAddress.stakeKeyHash(), network);
-
-        var snipeRedeemerOpt = resolveSnipeRedeemer(snipe, snipeType, nft);
-
-        if (snipeRedeemerOpt.isEmpty()) {
-            log.warn("could not compute proof");
-            return;
-        }
-
-        var snipeRedeemer = snipeRedeemerOpt.get();
-
-        var snipeContract = switch (snipeType) {
-            case POLICY -> policyIdSnipeContract.getPlutusScript();
-            case MERKLE -> merkleTreeSnipeContract.getPlutusScript();
-        };
-
-        var snipeTx = new Tx()
-                // Collect SNIPE
-                .collectFrom(snipeUtxo, snipeRedeemer)
-                // Collect NFT
-                .collectFrom(jpgNftUtxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
-                // BURN Snipe NFT
-                .mintAsset(snipeContract, Asset.builder().value(BigInteger.ONE.negate()).build(), ConstrPlutusData.of(1))
-                // Pay JPG Store Fees
-                .payToContract(JPG_STORE_FEE_ADDRESS, Amount.lovelace(actualJpgStoreFees), txFeeDatum);
-
-        // JPG Payees
-        listingDetails.payees()
-                .forEach(paymentDetails -> {
-                    log.info("beneficiary: {}", paymentDetails.beneficiary());
-                    snipeTx.payToAddress(paymentDetails.beneficiary(), ValueUtil.toAmountList(paymentDetails.amount()));
-                });
-
-        // Deliver NFT
-        snipeTx.
-                payToContract(nftDestination.getAddress(), Amount.asset(nft.toUnit(), BigInteger.ONE), snipeTag)
-                // Pay Sniper Protocol
-                .payToContract(treasuryAddress.getAddress(), Amount.lovelace(BigInteger.valueOf(snipeDatum.protocolFee())), snipeTag)
-                .readFrom(settingsUtxo)
-                // JPG Contract
-                .readFrom(JPG_STORE_V2_CONTRACT_REF_INPUT)
-                .withChangeAddress(account.baseAddress());
-
-        var snipeTransaction = quickTxBuilder.compose(snipeTx)
-                .feePayer(account.baseAddress())
-                .mergeOutputs(false)
-                .withSigner(SignerProviders.signerFrom(account))
-                .buildAndSign();
-
         try {
+
+            var snipeUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                            .txHash(snipe.getTransactionId())
+                            .outputIndex(snipe.getIndex())
+                            .build())
+                    .map(UtxoUtil::toUtxo);
+
+            if (snipeUtxoOpt.isEmpty()) {
+                log.warn("could not find jpgNftUtxo: {}", jpgNftUtxo);
+                return;
+            }
+
+            // Snipe UTXO
+            var snipeUtxo = snipeUtxoOpt.get();
+            log.info("snipeUtxo: {}", snipeUtxo);
+
+            var snipeDatumOpt = snipeDatumParser.parse(snipeUtxo.getInlineDatum());
+            if (snipeDatumOpt.isEmpty()) {
+                log.warn("could not parse jpgNftUtxo: {}", snipeUtxo);
+                return;
+            }
+
+            var snipeDatum = snipeDatumOpt.get();
+
+            var nftDestinationAddress = snipeDatum.nftDestination();
+
+            Address nftDestination;
+            if (nftDestinationAddress.stakeKeyHash() != null) {
+                nftDestination = AddressProvider.getBaseAddress(nftDestinationAddress.paymentKeyHash(), nftDestinationAddress.stakeKeyHash(), network);
+            } else {
+                nftDestination = AddressProvider.getEntAddress(nftDestinationAddress.paymentKeyHash(), network);
+            }
+
+            var totalAmount = listingDetails.totalAmount().getCoin();
+            var expectedJpgStoreNftFees = Rational.from(totalAmount).multiply(Rational.from(20L, 980L)).floor();
+            log.info("expectedJpgStoreNftFees: {}", expectedJpgStoreNftFees);
+
+            var actualJpgStoreFees = BigInteger.valueOf(1_000_000L).max(expectedJpgStoreNftFees);
+            log.info("actualJpgStoreFees: {}", actualJpgStoreFees);
+
+            var nftCost = totalAmount.add(actualJpgStoreFees);
+
+            if (snipeDatum.maxPrice() >= nftCost.longValue()) {
+                log.info("ENOUGH");
+            } else {
+                log.info("NFT PRICE TOO HIGH - max price: {} -> nft cost: {}", snipeDatum.maxPrice(), nftCost);
+                return;
+            }
+
+            var txFeeDatum = getJpgUtxoHash(jpgNftUtxo.getTxHash(), jpgNftUtxo.getOutputIndex());
+
+            var snipeTag = getUtxoHash(snipeUtxo.getTxHash(), snipeUtxo.getOutputIndex());
+            log.info("snipeTag: {}", snipeTag.serializeToHex());
+
+            var settingsUtxoOpt = utxoRepository.findUnspentByOwnerPaymentCredential(settingsContract.getScriptHash(), Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .map(UtxoUtil::toUtxo)
+                    .findAny();
+
+            if (settingsUtxoOpt.isEmpty()) {
+                log.warn("could not find utxo by settings: {}", settingsContract.getScriptHash());
+                return;
+            }
+
+            var settingsUtxo = settingsUtxoOpt.get();
+
+            var settingsOpt = settingsParser.parse(settingsUtxo.getInlineDatum());
+            if (settingsOpt.isEmpty()) {
+                log.warn("could not parse utxo: {}", settingsUtxo);
+                return;
+            }
+
+            var settings = settingsOpt.get();
+            var protocolTreasuryAddress = settings.protocolTreasury();
+
+            var treasuryAddress = AddressProvider.getBaseAddress(protocolTreasuryAddress.paymentKeyHash(), protocolTreasuryAddress.stakeKeyHash(), network);
+
+            var snipeRedeemerOpt = resolveSnipeRedeemer(snipe, snipeType, nft);
+
+            if (snipeRedeemerOpt.isEmpty()) {
+                log.warn("could not compute proof");
+                return;
+            }
+
+            var snipeRedeemer = snipeRedeemerOpt.get();
+
+            var snipeContract = switch (snipeType) {
+                case POLICY -> policyIdSnipeContract.getPlutusScript();
+                case MERKLE -> merkleTreeSnipeContract.getPlutusScript();
+            };
+
+            var snipeTx = new Tx()
+                    // Collect SNIPE
+                    .collectFrom(snipeUtxo, snipeRedeemer)
+                    // Collect NFT
+                    .collectFrom(jpgNftUtxo, ConstrPlutusData.of(0, BigIntPlutusData.of(0)), listingDatum)
+                    // BURN Snipe NFT
+                    .mintAsset(snipeContract, Asset.builder().value(BigInteger.ONE.negate()).build(), ConstrPlutusData.of(1))
+                    // Pay JPG Store Fees
+                    .payToContract(JPG_STORE_FEE_ADDRESS, Amount.lovelace(actualJpgStoreFees), txFeeDatum);
+
+            // JPG Payees
+            listingDetails.payees()
+                    .forEach(paymentDetails -> {
+                        log.info("beneficiary: {}", paymentDetails.beneficiary());
+                        snipeTx.payToAddress(paymentDetails.beneficiary(), ValueUtil.toAmountList(paymentDetails.amount()));
+                    });
+
+            // Deliver NFT
+            snipeTx.
+                    payToContract(nftDestination.getAddress(), Amount.asset(nft.toUnit(), BigInteger.ONE), snipeTag)
+                    // Pay Sniper Protocol
+                    .payToContract(treasuryAddress.getAddress(), Amount.lovelace(BigInteger.valueOf(snipeDatum.protocolFee())), snipeTag)
+                    .readFrom(settingsUtxo)
+                    // JPG Contract
+                    .readFrom(JPG_STORE_V2_CONTRACT_REF_INPUT)
+                    .withChangeAddress(account.baseAddress());
+
+            var snipeTransaction = quickTxBuilder.compose(snipeTx)
+                    .feePayer(account.baseAddress())
+                    .mergeOutputs(false)
+                    .withSigner(SignerProviders.signerFrom(account))
+                    .buildAndSign();
+
+
             bfBackendService.getTransactionService()
                     .submitTransaction(snipeTransaction.serialize());
         } catch (Exception e) {
