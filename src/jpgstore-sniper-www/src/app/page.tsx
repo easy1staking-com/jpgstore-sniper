@@ -8,6 +8,7 @@ import MySnipes from "@/components/MySnipes";
 import NewSnipe from "@/components/NewSnipe";
 import { useSnipes } from "@/hooks/useSnipes";
 import { useSettings } from "@/hooks/useSettings";
+import { useContracts } from "@/hooks/useContracts";
 
 type Tab = "my-snipes" | "new-snipe";
 
@@ -17,6 +18,7 @@ export default function Home() {
 
   const { snipes, loading: snipesLoading, error: snipesError, cancelSnipes, addSnipe, refresh } = useSnipes();
   const { settings, loading: settingsLoading, error: settingsError } = useSettings();
+  const { contracts } = useContracts();
 
   return (
     <div className="flex min-h-screen flex-col bg-void">
@@ -27,6 +29,7 @@ export default function Home() {
             snipes={snipes}
             loading={snipesLoading}
             error={snipesError}
+            contracts={contracts}
             onCancel={cancelSnipes}
             onRefresh={refresh}
           />
@@ -40,6 +43,7 @@ export default function Home() {
             settings={settings}
             settingsLoading={settingsLoading}
             settingsError={settingsError}
+            contracts={contracts}
           />
         )}
       </main>

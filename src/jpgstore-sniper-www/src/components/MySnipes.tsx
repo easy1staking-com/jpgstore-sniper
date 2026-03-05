@@ -2,20 +2,21 @@
 
 import { useState } from "react";
 import { useWallet } from "@meshsdk/react";
-import { SnipeOrder } from "@/lib/types";
+import { ContractInfo, SnipeOrder } from "@/lib/types";
 import { cancelSnipeTx } from "@/lib/transactions";
-import { txExplorerUrl, LISTING_NFT_POLICY_SCRIPT_CBOR } from "@/lib/contract";
+import { txExplorerUrl, isContractReady } from "@/lib/contract";
 import SnipeCard from "./SnipeCard";
 
 interface MySnipesProps {
   snipes: SnipeOrder[];
   loading: boolean;
   error: string | null;
+  contracts: ContractInfo | null;
   onCancel: (ids: string[]) => void;
   onRefresh: () => void;
 }
 
-export default function MySnipes({ snipes, loading, error, onCancel, onRefresh }: MySnipesProps) {
+export default function MySnipes({ snipes, loading, error, contracts, onCancel, onRefresh }: MySnipesProps) {
   const { wallet } = useWallet();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cancelling, setCancelling] = useState(false);
@@ -49,7 +50,7 @@ export default function MySnipes({ snipes, loading, error, onCancel, onRefresh }
     setCancelling(true);
     setCancelError(null);
     try {
-      if (LISTING_NFT_POLICY_SCRIPT_CBOR && wallet) {
+      if (isContractReady(contracts) && wallet) {
         // Real on-chain cancel transaction
         const utxos = selectedSnipes
           .filter((s) => s.txHash && s.outputIndex !== undefined)
@@ -59,7 +60,7 @@ export default function MySnipes({ snipes, loading, error, onCancel, onRefresh }
           }));
 
         if (utxos.length > 0) {
-          const result = await cancelSnipeTx({ wallet, snipeUtxos: utxos });
+          const result = await cancelSnipeTx({ wallet, contracts: contracts!, snipeUtxos: utxos });
           setTxHash(result.txHash);
           setSuccessMsg(`Cancel tx submitted!`);
           setTimeout(() => {
@@ -209,7 +210,7 @@ export default function MySnipes({ snipes, loading, error, onCancel, onRefresh }
           <span>{successMsg}</span>
           {txHash && (
             <a
-              href={txExplorerUrl(txHash)}
+              href={txExplorerUrl(txHash, contracts?.networkId ?? 1)}
               target="_blank"
               rel="noopener noreferrer"
               className="ml-1 underline underline-offset-2 text-neon-dim hover:text-neon"

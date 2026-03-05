@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, SnipeOrder } from "@/lib/types";
+import { ContractInfo, Settings, SnipeOrder } from "@/lib/types";
 import CollectionSnipeForm from "./CollectionSnipeForm";
 import ComingSoon from "./ComingSoon";
 
@@ -13,9 +13,10 @@ interface NewSnipeProps {
   settings: Settings | null;
   settingsLoading: boolean;
   settingsError: string | null;
+  contracts: ContractInfo | null;
 }
 
-export default function NewSnipe({ onCreated, walletConnected, settings, settingsLoading, settingsError }: NewSnipeProps) {
+export default function NewSnipe({ onCreated, walletConnected, settings, settingsLoading, settingsError, contracts }: NewSnipeProps) {
   const [subTab, setSubTab] = useState<SubTab>("collection");
 
   if (!walletConnected) {
@@ -118,7 +119,7 @@ export default function NewSnipe({ onCreated, walletConnected, settings, setting
       {/* Content */}
       <div className="mx-auto max-w-lg">
         {subTab === "collection" ? (
-          <CollectionSnipeForm onCreated={onCreated} settings={settings} />
+          <CollectionSnipeForm onCreated={onCreated} settings={settings} contracts={contracts} />
         ) : (
           <ComingSoon />
         )}

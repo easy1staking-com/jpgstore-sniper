@@ -1,4 +1,4 @@
-import { CollectionInfo, Settings, SnipeOrder } from "./types";
+import { CollectionInfo, ContractInfo, Settings, SnipeOrder } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8080";
 
@@ -16,6 +16,14 @@ export async function fetchSettings(): Promise<Settings> {
   const res = await fetch(`${API_BASE}/api/v1/settings`);
   if (!res.ok) {
     throw new Error(`Failed to fetch settings (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function fetchContracts(): Promise<ContractInfo> {
+  const res = await fetch(`${API_BASE}/api/v1/contracts`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch contracts (${res.status})`);
   }
   return res.json();
 }

@@ -2,21 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@meshsdk/react";
-import { CollectionInfo, FeeBreakdown, Settings, SnipeOrder } from "@/lib/types";
+import { CollectionInfo, ContractInfo, FeeBreakdown, Settings, SnipeOrder } from "@/lib/types";
 import { adaToLovelace, calculateFees, formatAda } from "@/lib/fees";
 import { fetchCollection } from "@/lib/api";
 import { createSnipeTx } from "@/lib/transactions";
-import { txExplorerUrl, LISTING_NFT_POLICY_SCRIPT_CBOR } from "@/lib/contract";
+import { txExplorerUrl, isContractReady } from "@/lib/contract";
 import SnipeReceipt from "./SnipeReceipt";
 
 interface CollectionSnipeFormProps {
   onCreated: (order: SnipeOrder) => void;
   settings: Settings;
+  contracts: ContractInfo | null;
 }
 
 export default function CollectionSnipeForm({
   onCreated,
   settings,
+  contracts,
 }: CollectionSnipeFormProps) {
   const { wallet } = useWallet();
 
@@ -92,10 +94,11 @@ export default function CollectionSnipeForm({
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      if (LISTING_NFT_POLICY_SCRIPT_CBOR) {
+      if (isContractReady(contracts)) {
         // Real on-chain transaction
         const result = await createSnipeTx({
           wallet,
+          contracts: contracts!,
           settings,
           targetPolicyId: policyId.trim(),
           maxPriceLovelace,
@@ -324,7 +327,7 @@ export default function CollectionSnipeForm({
           <span>{successMsg}</span>
           {txHash && (
             <a
-              href={txExplorerUrl(txHash)}
+              href={txExplorerUrl(txHash, contracts?.networkId ?? 1)}
               target="_blank"
               rel="noopener noreferrer"
               className="ml-1 underline underline-offset-2 text-neon-dim hover:text-neon"

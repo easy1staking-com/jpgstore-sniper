@@ -29,6 +29,17 @@ export interface FeeBreakdown {
   totalLocked: number; // lovelace (maxPrice + all fees)
 }
 
+export interface ContractInfo {
+  settingsNftPolicyCbor: string;
+  settingsNftPolicyId: string;
+  listingNftPolicyCbor: string;
+  listingNftPolicyId: string;
+  escrowScriptAddress: string;
+  settingsUtxoTxHash: string;
+  settingsUtxoOutputIndex: number;
+  networkId: number;
+}
+
 export interface CollectionInfo {
   policyId: string;
   name: string;
