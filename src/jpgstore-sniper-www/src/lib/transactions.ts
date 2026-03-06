@@ -1,3 +1,5 @@
+import { MeshTxBuilder, deserializeAddress } from "@meshsdk/core";
+import { mConStr0, mConStr1 } from "@meshsdk/common";
 import { ContractInfo, Settings, FeeBreakdown } from "./types";
 import { calculateFees } from "./fees";
 
@@ -44,9 +46,6 @@ export async function createSnipeTx(
     quantity,
   } = params;
 
-  const { MeshTxBuilder, resolvePaymentKeyHash, resolveStakeKeyHash } =
-    await import("@meshsdk/core");
-
   const fees: FeeBreakdown = calculateFees(settings, maxPriceLovelace);
   const lockedAmount =
     maxPriceLovelace +
@@ -54,11 +53,20 @@ export async function createSnipeTx(
     fees.protocolFee +
     fees.txFeeBudget;
 
+  console.log("[createSnipeTx] settings:", settings);
+  console.log("[createSnipeTx] contracts:", contracts);
+  console.log("[createSnipeTx] fees:", fees);
+  console.log("[createSnipeTx] lockedAmount:", lockedAmount);
+  console.log("[createSnipeTx] targetPolicyId:", targetPolicyId);
+
   const usedAddresses = await wallet.getUsedAddresses();
   if (!usedAddresses.length) throw new Error("No wallet address found");
   const changeAddress = usedAddresses[0];
-  const ownerPkh = resolvePaymentKeyHash(changeAddress);
-  const stakePkh = resolveStakeKeyHash(changeAddress);
+
+  const { pubKeyHash: ownerPkh, stakeCredentialHash: stakePkh } =
+    deserializeAddress(changeAddress);
+
+  console.log("[createSnipeTx] ownerPkh:", ownerPkh, "stakePkh:", stakePkh);
 
   const utxos = await wallet.getUtxos();
   const txBuilder = new MeshTxBuilder();
@@ -75,42 +83,31 @@ export async function createSnipeTx(
       .mintPlutusScriptV3()
       .mint("1", contracts.listingNftPolicyId, "")
       .mintingScript(contracts.listingNftPolicyCbor)
-      .mintRedeemerValue({ alternative: 0, fields: [] });
+      .mintRedeemerValue(mConStr0([]));
 
     // Build inline datum for PolicySnipeDatum
+    // Aiken Address = Constr 0 [payment_credential, Some(stake_credential)]
+    //               | Constr 1 [payment_credential] (no stake)
+    // payment_credential = Constr 0 [Constr 0 [pkh]]  (VerificationKeyCredential)
+    // stake_credential   = Constr 0 [Constr 0 [Constr 0 [stake_pkh]]]
+    const paymentCred = mConStr0([mConStr0([ownerPkh])]);
     const nftDestination = stakePkh
-      ? {
-          constructor: 0,
-          fields: [
-            { constructor: 0, fields: [{ bytes: ownerPkh }] },
-            {
-              constructor: 0,
-              fields: [
-                {
-                  constructor: 0,
-                  fields: [
-                    { constructor: 0, fields: [{ bytes: stakePkh }] },
-                  ],
-                },
-              ],
-            },
-          ],
-        }
-      : {
-          constructor: 1,
-          fields: [{ constructor: 0, fields: [{ bytes: ownerPkh }] }],
-        };
+      ? mConStr0([
+          paymentCred,
+          mConStr0([mConStr0([mConStr0([stakePkh])])]),
+        ])
+      : mConStr1([paymentCred]);
 
-    const datum = {
-      constructor: 0,
-      fields: [
-        { bytes: ownerPkh },
-        nftDestination,
-        { bytes: targetPolicyId },
-        { int: maxPriceLovelace },
-        { int: fees.protocolFee },
-      ],
-    };
+    // PolicySnipeDatum { owner_pkh, nft_destination, policy_id, max_price, protocol_fee }
+    const datum = mConStr0([
+      ownerPkh,
+      nftDestination,
+      targetPolicyId,
+      maxPriceLovelace,
+      fees.protocolFee,
+    ]);
+
+    console.log("[createSnipeTx] datum:", JSON.stringify(datum));
 
     // Output to escrow: locked lovelace + listing NFT with inline datum
     txBuilder.txOut(contracts.escrowScriptAddress, [
@@ -123,7 +120,8 @@ export async function createSnipeTx(
   txBuilder.changeAddress(changeAddress);
   txBuilder.selectUtxosFrom(utxos);
 
-  const unsignedTx = await txBuilder.complete();
+  await txBuilder.complete();
+  const unsignedTx = txBuilder.txHex;
   const signedTx = await wallet.signTx(unsignedTx);
   const txHash = await wallet.submitTx(signedTx);
 
@@ -152,12 +150,11 @@ export async function cancelSnipeTx(
 ): Promise<TxResult> {
   const { wallet, contracts, snipeUtxos } = params;
 
-  const { MeshTxBuilder, resolvePaymentKeyHash } =
-    await import("@meshsdk/core");
-
   const usedAddresses = await wallet.getUsedAddresses();
   if (!usedAddresses.length) throw new Error("No wallet address found");
   const changeAddress = usedAddresses[0];
+
+  const { pubKeyHash: ownerPkh } = deserializeAddress(changeAddress);
 
   const utxos = await wallet.getUtxos();
   const txBuilder = new MeshTxBuilder();
@@ -174,7 +171,7 @@ export async function cancelSnipeTx(
       .spendingPlutusScriptV3()
       .txIn(snipeUtxo.txHash, snipeUtxo.outputIndex)
       .spendingReferenceTxInInlineDatumPresent()
-      .spendingReferenceTxInRedeemerValue({ alternative: 1, fields: [] });
+      .spendingReferenceTxInRedeemerValue(mConStr1([]));
     txBuilder.txInScript(contracts.listingNftPolicyCbor);
 
     // Burn listing NFT
@@ -182,16 +179,17 @@ export async function cancelSnipeTx(
       .mintPlutusScriptV3()
       .mint("-1", contracts.listingNftPolicyId, "")
       .mintingScript(contracts.listingNftPolicyCbor)
-      .mintRedeemerValue({ alternative: 1, fields: [] });
+      .mintRedeemerValue(mConStr1([]));
   }
 
   // Required signer (owner PKH)
-  txBuilder.requiredSignerHash(resolvePaymentKeyHash(changeAddress));
+  txBuilder.requiredSignerHash(ownerPkh);
 
   txBuilder.changeAddress(changeAddress);
   txBuilder.selectUtxosFrom(utxos);
 
-  const unsignedTx = await txBuilder.complete();
+  await txBuilder.complete();
+  const unsignedTx = txBuilder.txHex;
   const signedTx = await wallet.signTx(unsignedTx);
   const txHash = await wallet.submitTx(signedTx);
 
