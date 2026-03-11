@@ -45,6 +45,7 @@ import io.blockfrost.sdk.impl.AddressServiceImpl;
 import io.blockfrost.sdk.impl.TransactionServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import scalus.bloxbean.ScalusTransactionEvaluator;
@@ -58,6 +59,7 @@ import java.util.Set;
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
 @Slf4j
+@Tag("deployment")
 public class PolicySnipeNftV2Test extends AbstractTest {
 
     private final Network network = Networks.mainnet();

@@ -60,5 +60,13 @@ dependencies {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'deployment'
+	}
+}
+
+tasks.register('deploymentTest', Test) {
+	useJUnitPlatform {
+		includeTags 'deployment'
+	}
 }

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.util.stream.Collectors;
 
 @Slf4j
-
 public class ListDatumParserTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -38,7 +37,7 @@ public class ListDatumParserTest {
 
         log.info("listingMetadata: {}", listingMetadata);
 
-        var listingDetailsOpt = LISTING_DATUM_PARSER.parsePaymentDetailsV2(listingMetadataCbor,  datumHash);
+        var listingDetailsOpt = LISTING_DATUM_PARSER.parsePaymentDetailsV2(listingMetadataCbor, datumHash);
         if (listingDetailsOpt.isEmpty()) {
             Assertions.fail();
         }
@@ -58,7 +57,7 @@ public class ListDatumParserTest {
         var datumHash3 = "f390bf6d176080f967d75425b82b8010c2c5e29d66b6f67ba98bb517e13a7bba";
         var datumHash4 = "b74721b70eca15258750e3e0ff8680538a62390e65542f0f25f3394dd6785c04";
 
-        var listingDetailsOpt = LISTING_DATUM_PARSER.parsePaymentDetailsV2(listingMetadataCbor,  datumHash3);
+        var listingDetailsOpt = LISTING_DATUM_PARSER.parsePaymentDetailsV2(listingMetadataCbor, datumHash3);
         if (listingDetailsOpt.isEmpty()) {
             Assertions.fail();
         }

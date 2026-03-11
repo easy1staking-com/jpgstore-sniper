@@ -1,27 +1,23 @@
 package com.easy1staking.jpgstore.deployment;
 
-import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.account.Account;
 import com.bloxbean.cardano.client.api.model.Amount;
-import com.bloxbean.cardano.client.api.util.ValueUtil;
-import com.bloxbean.cardano.client.common.model.Network;
 import com.bloxbean.cardano.client.common.model.Networks;
 import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.Tx;
-import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.easy1staking.jpgstore.jpgstorejavaclient.AbstractTest;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.stream.IntStream;
 
 @Slf4j
+@Tag("deployment")
 public class LargeDatumTest extends AbstractTest {
 
     @Test
@@ -34,7 +30,7 @@ public class LargeDatumTest extends AbstractTest {
                 .map(unit -> BytesPlutusData.of(HexUtil.decodeHexString(unit)))
                 .toList();
 
-        var nfts  = ListPlutusData.of(hundredNfts.toArray(new BytesPlutusData[]{}));
+        var nfts = ListPlutusData.of(hundredNfts.toArray(new BytesPlutusData[]{}));
 
         var tx = new Tx()
                 .from(account.baseAddress())

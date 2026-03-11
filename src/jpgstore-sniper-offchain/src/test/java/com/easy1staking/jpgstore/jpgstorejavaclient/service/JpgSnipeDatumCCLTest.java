@@ -48,6 +48,7 @@ import io.blockfrost.sdk.impl.TransactionServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
@@ -57,6 +58,7 @@ import java.util.Set;
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
 @Slf4j
+@Tag("deployment")
 public class JpgSnipeDatumCCLTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

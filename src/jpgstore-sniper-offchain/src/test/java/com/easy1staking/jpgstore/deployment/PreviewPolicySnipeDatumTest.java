@@ -27,12 +27,14 @@ import com.easy1staking.jpgstore.sniper.model.onchain.SettingsParser;
 import com.easy1staking.jpgstore.sniper.model.onchain.SnipeDatum;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
 import java.math.BigInteger;
 
 @Slf4j
+@Tag("deployment")
 public class PreviewPolicySnipeDatumTest extends AbstractTest {
 
     private static final Network NETWORK = Networks.preview();

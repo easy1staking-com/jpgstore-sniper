@@ -1,6 +1,5 @@
 package com.easy1staking.jpgstore.jpgstorejavaclient;
 
-import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.account.Account;
 import com.bloxbean.cardano.client.api.TransactionEvaluator;
 import com.bloxbean.cardano.client.api.model.Amount;
@@ -34,6 +33,7 @@ import io.blockfrost.sdk.impl.AddressServiceImpl;
 import io.blockfrost.sdk.impl.TransactionServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
@@ -42,6 +42,7 @@ import java.util.List;
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
 @Slf4j
+@Tag("deployment")
 public class PurchaseNftV2Test {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

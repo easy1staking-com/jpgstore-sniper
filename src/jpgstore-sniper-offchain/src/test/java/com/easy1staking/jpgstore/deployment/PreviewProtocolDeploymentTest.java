@@ -25,12 +25,14 @@ import com.easy1staking.jpgstore.sniper.model.onchain.Address;
 import com.easy1staking.jpgstore.sniper.model.onchain.Settings;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
 import java.math.BigInteger;
 
 @Slf4j
+@Tag("deployment")
 public class PreviewProtocolDeploymentTest extends AbstractTest {
 
     private static final Network NETWORK = Networks.preview();

@@ -47,6 +47,7 @@ import org.cardanofoundation.merkle.MerkleTree;
 import org.cardanofoundation.merkle.ProofItem;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
@@ -56,6 +57,7 @@ import java.util.Set;
 import static com.easy1staking.jpgstore.sniper.model.Constants.JPG_CONTRACT_ADDRESS_V2;
 
 @Slf4j
+@Tag("deployment")
 public class JpgMerkleSnipeTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
