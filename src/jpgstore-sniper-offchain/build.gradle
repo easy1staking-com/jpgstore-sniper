@@ -14,6 +14,9 @@ java {
 repositories {
 	mavenCentral()
 	mavenLocal()
+	maven {
+		url 'https://central.sonatype.com/repository/maven-snapshots/'
+	}
 }
 
 dependencies {
@@ -26,9 +29,10 @@ dependencies {
     implementation('com.easy1staking:cardano-client-lib-extensions:0.0.3')
     implementation("org.cardanofoundation:merkle-tree-java:0.0.7")
 
-    implementation('com.bloxbean.cardano:cardano-client-lib:0.8.0-preview1')
-    implementation('com.bloxbean.cardano:cardano-client-backend-blockfrost:0.8.0-preview1')
-    implementation('com.bloxbean.cardano:cardano-client-backend-ogmios:0.8.0-preview1')
+    implementation('com.bloxbean.cardano:cardano-client-lib:0.8.0-preview2-SNAPSHOT')
+    implementation("com.bloxbean.cardano:cardano-client-plutus-aiken:0.8.0-preview2-SNAPSHOT")
+    implementation('com.bloxbean.cardano:cardano-client-backend-blockfrost:0.8.0-preview2-SNAPSHOT')
+    implementation('com.bloxbean.cardano:cardano-client-backend-ogmios:0.8.0-preview2-SNAPSHOT')
 
     implementation 'com.bloxbean.cardano:yaci-store-spring-boot-starter:0.1.6'
     implementation 'com.bloxbean.cardano:yaci-store-utxo-spring-boot-starter:0.1.6'
@@ -42,8 +46,8 @@ dependencies {
     implementation 'org.postgresql:postgresql:42.7.2'
     testImplementation 'com.h2database:h2:2.2.220'
 
-    compileOnly 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview1'
-    annotationProcessor 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview1'
+    compileOnly 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview2-SNAPSHOT'
+    annotationProcessor 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview2-SNAPSHOT'
 
     // Lombok
 	compileOnly 'org.projectlombok:lombok:1.18.30'
