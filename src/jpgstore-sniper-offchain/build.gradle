@@ -42,6 +42,9 @@ dependencies {
     implementation 'org.postgresql:postgresql:42.7.2'
     testImplementation 'com.h2database:h2:2.2.220'
 
+    compileOnly 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview1'
+    annotationProcessor 'com.bloxbean.cardano:cardano-client-annotation-processor:0.8.0-preview1'
+
     // Lombok
 	compileOnly 'org.projectlombok:lombok:1.18.30'
 	annotationProcessor 'org.projectlombok:lombok:1.18.30'
