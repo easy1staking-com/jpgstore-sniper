@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
+import static com.easy1staking.jpgstore.sniper.util.BlueprintUtil.toOnchainAddress;
 
 @Slf4j
 public class AddressSerdeTest {
@@ -26,16 +26,15 @@ public class AddressSerdeTest {
 
         var internalOnchainAddress = Address.fromAddress(address).get().toPlutusData();
 
-        var cclOnchainAddress = toCclAddress(address);
+        var cclOnchainAddressOpt = toOnchainAddress(address);
+        if (cclOnchainAddressOpt.isEmpty()) {
+            Assertions.fail();
+        }
+
+        var cclOnchainAddress = cclOnchainAddressOpt.get();
 
         Assertions.assertEquals(internalOnchainAddress, cclOnchainAddress.toPlutusData());
 
-    }
-
-    public com.bloxbean.cardano.client.plutus.aiken.blueprint.std.Address toCclAddress(com.bloxbean.cardano.client.address.Address address) {
-        var pkh = Credential.verificationKey(address.getPaymentCredentialHash().get());
-        Optional<ReferencedCredential> skhOpt = address.getDelegationCredentialHash().map(hash -> new ReferencedCredential.Inline(Credential.verificationKey(hash)));
-        return new com.bloxbean.cardano.client.plutus.aiken.blueprint.std.Address(pkh, skhOpt);
     }
 
     @Test
