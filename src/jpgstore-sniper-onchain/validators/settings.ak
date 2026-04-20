@@ -5,6 +5,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use types.{SettingsDatum, is_valid_settings_datum, settings_nft_name}
+use utils
 
 /// Settings Spending Validator (Continuous State)
 ///
@@ -46,18 +47,7 @@ validator settings(utxo_ref: OutputReference) {
     let own_address = own_input.output.address
     expect Script(script_hash) = own_address.payment_credential
 
-    // 1. settings NFT must be in our own input
-    let input_has_nft =
-      assets.has_nft_strict(
-        own_input.output.value,
-        script_hash,
-        settings_nft_name,
-      )
-
-    // 2. signed by admin
-    let signed_by_admin =
-      list.has(self.extra_signatories, settings_datum.admin_pkh)
-    // 3. output: expected address and expected value
+    // 1. output: expected address and expected value
     expect Some(output) =
       list.find(
         self.outputs,
@@ -70,17 +60,17 @@ validator settings(utxo_ref: OutputReference) {
       )
     expect InlineDatum(output_datum) = output.datum
     expect output_settings_datum: SettingsDatum = output_datum
-    let valid_output_settings = is_valid_settings_datum(output_settings_datum)
-    expect
-      settings_datum.admin_pkh == output_settings_datum.admin_pkh || list.has(
-        self.extra_signatories,
-        output_settings_datum.admin_pkh,
-      )
     // 4. only allowed fields are modified
     and {
-      input_has_nft,
-      signed_by_admin,
-      valid_output_settings,
+      // Signed by admin
+      utils.signed_by(self, settings_datum.admin_pkh)?,
+      // If updated signer, ensure new key is a signer
+      or {
+        settings_datum.admin_pkh == output_settings_datum.admin_pkh,
+        utils.signed_by(self, output_settings_datum.admin_pkh),
+      }?,
+      // Ensure new datum is OK!
+      is_valid_settings_datum(output_settings_datum)?,
     }
   }
 
@@ -110,8 +100,7 @@ fn is_output_valid(
   expect settings_datum: SettingsDatum = datum
   let valid_output_settings = is_valid_settings_datum(settings_datum)
 
-  let has_admin_signature =
-    list.has(self.extra_signatories, settings_datum.admin_pkh)
+  let has_admin_signature = utils.signed_by(self, settings_datum.admin_pkh)
   and {
     nft_sent_to_output?,
     has_admin_signature?,
@@ -168,8 +157,8 @@ pub fn base_input() -> Input {
 
 fn test_settings_datum() -> SettingsDatum {
   SettingsDatum {
-    operator_fee_pct: 200,
-    protocol_fee_pct: 100,
+    operator_fee_pct: 1,
+    protocol_fee_pct: 1,
     min_operator_fee: 1_000_000,
     min_protocol_fee: 1_000_000,
     protocol_treasury: Address {
@@ -405,34 +394,6 @@ test update_settings_fails_without_admin_sig() fail {
   settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
 }
 
-test update_settings_fails_without_nft_in_input() fail {
-  let utxo_ref = test_utxo_ref()
-  let own_ref =
-    OutputReference {
-      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000001",
-      output_index: 0,
-    }
-  // Input without the settings NFT
-  let input_without_nft =
-    Input {
-      output_reference: own_ref,
-      output: Output {
-        address: test_script_address(),
-        value: assets.from_lovelace(2_000_000),
-        datum: InlineDatum(test_settings_datum()),
-        reference_script: None,
-      },
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [input_without_nft],
-      outputs: [settings_continuing_output()],
-      extra_signatories: [test_admin_pkh],
-    }
-  settings.spend(utxo_ref, Some(test_settings_datum()), Void, own_ref, tx)
-}
-
 test update_settings_fails_without_continuing_output() fail {
   let utxo_ref = test_utxo_ref()
   let own_ref =
@@ -512,21 +473,33 @@ test mint_fails_with_zero_operator_fee_pct() fail {
   settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
 }
 
-test mint_fails_with_zero_protocol_fee_pct() fail {
-  let utxo_ref = test_utxo_ref()
-  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
-  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
-}
-
 test mint_fails_with_zero_min_operator_fee() fail {
   let utxo_ref = test_utxo_ref()
   let datum = SettingsDatum { ..test_settings_datum(), min_operator_fee: 0 }
   settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
 }
 
-test mint_fails_with_zero_min_protocol_fee() fail {
+test mint_succeeds_with_zero_min_protocol_fee() {
   let utxo_ref = test_utxo_ref()
   let datum = SettingsDatum { ..test_settings_datum(), min_protocol_fee: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_succeeds_with_zero_protocol_fee_pct() {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_operator_fee_pct_100() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), operator_fee_pct: 100 }
+  settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
+}
+
+test mint_fails_with_protocol_fee_pct_100() fail {
+  let utxo_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 100 }
   settings.mint(utxo_ref, 0, test_policy_id, mint_tx_with_datum(datum))
 }
 
@@ -578,21 +551,33 @@ test update_fails_with_zero_operator_fee_pct() fail {
   spend_tx_with_output_datum(datum, own_ref)
 }
 
-test update_fails_with_zero_protocol_fee_pct() fail {
-  let own_ref = test_utxo_ref()
-  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
-  spend_tx_with_output_datum(datum, own_ref)
-}
-
 test update_fails_with_zero_min_operator_fee() fail {
   let own_ref = test_utxo_ref()
   let datum = SettingsDatum { ..test_settings_datum(), min_operator_fee: 0 }
   spend_tx_with_output_datum(datum, own_ref)
 }
 
-test update_fails_with_zero_min_protocol_fee() fail {
+test update_succeeds_with_zero_min_protocol_fee() {
   let own_ref = test_utxo_ref()
   let datum = SettingsDatum { ..test_settings_datum(), min_protocol_fee: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_succeeds_with_zero_protocol_fee_pct() {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 0 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_operator_fee_pct_100() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), operator_fee_pct: 100 }
+  spend_tx_with_output_datum(datum, own_ref)
+}
+
+test update_fails_with_protocol_fee_pct_100() fail {
+  let own_ref = test_utxo_ref()
+  let datum = SettingsDatum { ..test_settings_datum(), protocol_fee_pct: 100 }
   spend_tx_with_output_datum(datum, own_ref)
 }
 

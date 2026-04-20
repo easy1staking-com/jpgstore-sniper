@@ -13,25 +13,32 @@ pub const percentage_denominator: Int = 100
 // ============================================================================
 
 pub type SettingsDatum {
+  /// Operator Fee, as a percentage
   operator_fee_pct: Int,
+  /// Protocol Fee, as a percentage
   protocol_fee_pct: Int,
-  // in lovelace
+  /// Min Operator Fee in lovelace
   min_operator_fee: Int,
-  // in lovelace
+  /// Min Protocol Fee in lovelace
   min_protocol_fee: Int,
+  /// Address to send Protocol Fee too
   protocol_treasury: Address,
+  /// Stake Credential where to lock funsd
   stake_credential: Credential,
-  // in lovelace
+  /// Budged to be locked to pay for tx fees
   tx_fee_budget: Int,
+  /// The PKH of the administrator which can update these settings
   admin_pkh: VerificationKeyHash,
 }
 
 pub fn is_valid_settings_datum(datum: SettingsDatum) -> Bool {
   and {
     datum.operator_fee_pct > 0,
-    datum.protocol_fee_pct > 0,
+    datum.operator_fee_pct < 100,
+    datum.protocol_fee_pct >= 0,
+    datum.protocol_fee_pct < 100,
     datum.min_operator_fee > 0,
-    datum.min_protocol_fee > 0,
+    datum.min_protocol_fee >= 0,
     datum.tx_fee_budget > 0,
   }
 }

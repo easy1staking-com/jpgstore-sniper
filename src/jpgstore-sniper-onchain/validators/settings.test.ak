@@ -36,12 +36,13 @@ fn credential_fuzzer() -> Fuzzer<address.Credential> {
   VerificationKey(hash)
 }
 
-/// Generate a SettingsDatum with ALL fields > 0 (valid)
+/// Generate a SettingsDatum satisfying `is_valid_settings_datum`.
+/// Note: protocol_fee_pct and min_protocol_fee may be 0 (promotion scenarios).
 pub fn valid_settings_datum() -> Fuzzer<SettingsDatum> {
-  let operator_fee_pct <- and_then(fuzz.int_between(1, 5000))
-  let protocol_fee_pct <- and_then(fuzz.int_between(1, 5000))
+  let operator_fee_pct <- and_then(fuzz.int_between(1, 99))
+  let protocol_fee_pct <- and_then(fuzz.int_between(0, 99))
   let min_operator_fee <- and_then(fuzz.int_between(1, 100_000_000))
-  let min_protocol_fee <- and_then(fuzz.int_between(1, 100_000_000))
+  let min_protocol_fee <- and_then(fuzz.int_between(0, 100_000_000))
   let protocol_treasury <- and_then(address_fuzzer())
   let stake_credential <- and_then(credential_fuzzer())
   let tx_fee_budget <- and_then(fuzz.int_between(1, 10_000_000))
@@ -58,18 +59,52 @@ pub fn valid_settings_datum() -> Fuzzer<SettingsDatum> {
   }
 }
 
-/// Generate a SettingsDatum with exactly one field set to 0 or negative
+/// Generate a SettingsDatum with exactly one field violating the invariant.
+/// Per-field buckets respect each field's allowed domain:
+///  - operator_fee_pct: invalid if <= 0 or >= 100
+///  - protocol_fee_pct: invalid if <  0 or >= 100   (0 is valid)
+///  - min_operator_fee: invalid if <= 0
+///  - min_protocol_fee: invalid if <  0              (0 is valid)
+///  - tx_fee_budget:    invalid if <= 0
 pub fn invalid_settings_datum() -> Fuzzer<SettingsDatum> {
   let base <- and_then(valid_settings_datum())
-  let bad_value <-
-    and_then(fuzz.either(fuzz.constant(0), fuzz.int_between(-100, -1)))
-  let field <- map(fuzz.int_between(0, 4))
+  let field <- and_then(fuzz.int_between(0, 4))
   when field is {
-    0 -> SettingsDatum { ..base, operator_fee_pct: bad_value }
-    1 -> SettingsDatum { ..base, protocol_fee_pct: bad_value }
-    2 -> SettingsDatum { ..base, min_operator_fee: bad_value }
-    3 -> SettingsDatum { ..base, min_protocol_fee: bad_value }
-    _ -> SettingsDatum { ..base, tx_fee_budget: bad_value }
+    0 -> {
+      let bad <-
+        map(
+          fuzz.either3(
+            fuzz.constant(0),
+            fuzz.int_between(-100, -1),
+            fuzz.int_between(100, 200),
+          ),
+        )
+      SettingsDatum { ..base, operator_fee_pct: bad }
+    }
+    1 -> {
+      let bad <-
+        map(
+          fuzz.either(
+            fuzz.int_between(-100, -1),
+            fuzz.int_between(100, 200),
+          ),
+        )
+      SettingsDatum { ..base, protocol_fee_pct: bad }
+    }
+    2 -> {
+      let bad <-
+        map(fuzz.either(fuzz.constant(0), fuzz.int_between(-100_000_000, -1)))
+      SettingsDatum { ..base, min_operator_fee: bad }
+    }
+    3 -> {
+      let bad <- map(fuzz.int_between(-100_000_000, -1))
+      SettingsDatum { ..base, min_protocol_fee: bad }
+    }
+    _ -> {
+      let bad <-
+        map(fuzz.either(fuzz.constant(0), fuzz.int_between(-10_000_000, -1)))
+      SettingsDatum { ..base, tx_fee_budget: bad }
+    }
   }
 }
 
@@ -208,8 +243,8 @@ fn two_distinct_admins() -> Fuzzer<(ByteArray, ByteArray)> {
 
 fn rotation_base_datum(admin: ByteArray) -> SettingsDatum {
   SettingsDatum {
-    operator_fee_pct: 200,
-    protocol_fee_pct: 100,
+    operator_fee_pct: 2,
+    protocol_fee_pct: 1,
     min_operator_fee: 1_000_000,
     min_protocol_fee: 1_000_000,
     protocol_treasury: Address {
