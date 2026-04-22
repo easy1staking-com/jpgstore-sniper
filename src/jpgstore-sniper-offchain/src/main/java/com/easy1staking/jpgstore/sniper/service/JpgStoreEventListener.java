@@ -117,11 +117,7 @@ public class JpgStoreEventListener {
                                 return;
                             }
 
-                            log.info("output.getDatumHash(): {}", output.getDatumHash());
-
                             var listingDatum = listingDatumOpt.get();
-                            log.info("listingDatum: {}", listingDatum.serializeToHex());
-                            log.info("listingDatum hash: {}", listingDatum.getDatumHash());
 
                             var listingDetailsOpt = listingDatumParser.parsePaymentDetailsV2(metadataCbor, output.getDatumHash());
 
@@ -137,10 +133,8 @@ public class JpgStoreEventListener {
                                     .filter(amount -> amount.getQuantity().equals(BigInteger.ONE))
                                     .forEach(amount -> {
                                         var nft = AssetType.fromUnit(amount.getUnit());
-                                        log.info("processing: {}", nft);
 
                                         var policySnipes = snipeRegistry.getPolicySnipe(nft.policyId());
-                                        log.info("found {} policy snipes", policySnipes.size());
 
                                         if (!policySnipes.isEmpty()) {
                                             processSnipe(policySnipes.getFirst(),
@@ -152,7 +146,6 @@ public class JpgStoreEventListener {
                                         }
 
                                         var merkleSnipes = snipeRegistry.getMerkleSnipe(nft.toUnit());
-                                        log.info("found {} merkle snipes", merkleSnipes.size());
 
                                         if (!merkleSnipes.isEmpty()) {
                                             processSnipe(merkleSnipes.getFirst(),
