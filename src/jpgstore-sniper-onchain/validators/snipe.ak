@@ -154,11 +154,10 @@ fn validate_mint(
   tx: Transaction,
   valdate_get_expected_locked_value: fn(SettingsDatum, Data) -> Int,
 ) -> Bool {
-  let mint_dict = assets.to_dict(tx.mint)
-  expect dict.size(mint_dict) == 1
-  expect Some(minted_tokens) = dict.get(mint_dict, policy_id)
-  expect dict.size(minted_tokens) == 1
-  expect Some(num_minted_nft) = dict.get(minted_tokens, #"")
+  expect [Pair(actual_policy_id, minted_assets)] =
+    assets.to_dict(tx.mint) |> dict.to_pairs()
+  expect actual_policy_id == policy_id
+  expect [Pair(#"", num_minted_nft)] = dict.to_pairs(minted_assets)
 
   if num_minted_nft > 0 {
     // 1. Find settings reference input (contains settings NFT)
@@ -176,8 +175,6 @@ fn validate_mint(
     expect InlineDatum(settings_data) = settings_ref_input.output.datum
     expect settings: SettingsDatum = settings_data
 
-    let expected_nft_value = assets.from_asset(policy_id, #"", 1)
-
     let expected_num_nft_minted =
       list.foldl(
         tx.outputs,
@@ -193,8 +190,7 @@ fn validate_mint(
                 expect stake_cred == settings.stake_credential
 
                 // Beside ada, just exactly 1 NFT under the policy
-                expect
-                  assets.without_lovelace(output.value) == expected_nft_value
+                expect assets.has_nft_strict(output.value, policy_id, #"")
 
                 expect InlineDatum(output_datum) = output.datum
                 let expected_min_lovelace_locked =
