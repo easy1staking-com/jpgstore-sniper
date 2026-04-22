@@ -1,5 +1,6 @@
 package com.easy1staking.jpgstore.sniper;
 
+import com.bloxbean.cardano.yaci.core.config.YaciConfig;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;

@@ -54,8 +54,6 @@ import static com.easy1staking.jpgstore.sniper.model.SnipeType.POLICY;
 @Slf4j
 public class JpgStoreEventListener {
 
-    private final ObjectMapper objectMapper;
-
     private final Network network;
 
     private final Account account;
@@ -101,7 +99,17 @@ public class JpgStoreEventListener {
 
                         if (JPG_CONTRACT_ADDRESS_V2.equals(output.getAddress())) {
 
-                            var metadataCbor = transaction.getAuxData().getMetadataCbor();
+                            var auxData = transaction.getAuxData();
+                            if (auxData == null) {
+                                log.info("auxData is null");
+                                return;
+                            }
+
+                            var metadataCbor = auxData.getMetadataCbor();
+                            if (metadataCbor == null) {
+                                log.info("metadataCbor is null");
+                                return;
+                            }
 
                             var listingDatumOpt = listingDatumParser.resolveListingDatum(metadataCbor, output.getDatumHash());
                             if (listingDatumOpt.isEmpty()) {

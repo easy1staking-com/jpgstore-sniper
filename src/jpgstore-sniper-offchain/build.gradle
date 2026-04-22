@@ -26,6 +26,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
+    implementation("org.cardanofoundation:cf-cardano-conversions-java:1.2.1")
     implementation('com.easy1staking:cardano-client-lib-extensions:0.0.3')
     implementation("org.cardanofoundation:merkle-tree-java:0.0.7")
 
