@@ -264,14 +264,30 @@ fn valid_merkle_datums_get_min_locked_amount(
   expected_min_lovelace_locked
 }
 
+/// Shared spend-path precondition for both `policy_snipe` and `merkle_snipe`.
+///
+/// Locates the `own_input` by `own_ref`, extracts the escrow script hash, and
+/// counts how many inputs at that same script address hold a listing NFT
+/// (policy = escrow script hash, asset name = #""). It then asserts:
+///
+///     tx.mint == { (escrow_script_hash, #"") -> -count }
+///
+/// Because aiken's `Value` equality is exact across all policies and asset
+/// names, this single check enforces two properties at once:
+///   1. Every consumed listing NFT is burned in the same tx (no reuse with
+///      bogus fees, no free-floating listing NFTs outside escrow addresses).
+///   2. No other minting or burning is permitted in a spend tx — mint and
+///      spend paths are mutually exclusive, preventing an attacker from
+///      spending an escrow UTxO while co-minting a fake listing NFT, and
+///      blocking unrelated mint traffic from piggybacking on a snipe spend.
+///
+/// Returns `(own_input, escrow_script_hash)` for the caller to continue
+/// redeemer-specific validation (cancel = owner signature, execute = output
+/// checks).
 fn validate_spend_burning(
   own_ref: OutputReference,
   self: Transaction,
 ) -> (Input, ByteArray) {
-  // The common part is just counting the spend addresses. and negate the minting.
-  // Then each spend ensure the logic holds (if cancel just signed by owner, if execute check the outputs, they all check the burn)
-  // We could make that only early input performs burn check?
-
   // Find own input
   expect Some(own_input) =
     list.find(self.inputs, fn(input) { input.output_reference == own_ref })
@@ -280,7 +296,11 @@ fn validate_spend_burning(
   expect Script(escrow_script_hash) =
     own_input.output.address.payment_credential
 
-  // Select inputs for this contract and do generic part (i.e. if there's an NFT guarding the utxo, it must be burned)
+  // Count inputs at the escrow script address that carry the listing NFT.
+  // Inputs at the same address without the NFT (e.g. orphan ADA-only UTxOs)
+  // are ignored: they contribute 0 to the expected burn total, and the mint
+  // equality check below still forces tx.mint to be exactly -count of the
+  // listing NFT, so they cannot be used to smuggle in extra mints.
   let amount_nft_to_burn =
     list.foldl(
       self.inputs,
@@ -289,7 +309,6 @@ fn validate_spend_burning(
         when input.output.address.payment_credential is {
           Script(script_hash) ->
             if script_hash == escrow_script_hash {
-              // If there's more than 1 input from the same script, fail (could be used to bypass the burn check by having one input with the NFT and another without and not burning)
               if assets.has_nft(input.output.value, escrow_script_hash, #"") {
                 acc + 1
               } else {
@@ -321,10 +340,10 @@ fn validate_spend_execute(
   self: Transaction,
   validate_nft_sent: fn(Value) -> Bool,
 ) -> Bool {
+  // Ensure the own input has the NFT
   expect assets.has_nft(own_input.output.value, escrow_script_hash, #"")
 
-  // Ensure the own input has the NFT
-  // Get PRotocol Settings from reference input
+  // Get Protocol Settings from reference input
   expect Some(settings_ref_input) =
     list.find(
       self.reference_inputs,
